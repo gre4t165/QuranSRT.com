@@ -1,0 +1,23 @@
+# QuranSRT Backend — Python Dependencies
+# Install dengan: pip install -r requirements.txt
+
+# ── Web Framework ─────────────────────────────────────────────────────────────
+fastapi==0.115.0          # Framework utama
+uvicorn[standard]==0.30.0 # ASGI server (jalankan app di production)
+
+# ── HTTP Client ───────────────────────────────────────────────────────────────
+httpx==0.27.0             # Async HTTP client — untuk fetch qurancdn.com API
+
+# ── Data Validation ───────────────────────────────────────────────────────────
+pydantic==2.9.0           # Schema & validation (sudah include di FastAPI)
+
+# ── Environment ───────────────────────────────────────────────────────────────
+python-dotenv==1.0.0      # Load .env file
+
+# ── Database (Supabase) ───────────────────────────────────────────────────────
+supabase==2.7.0           # Supabase Python client
+
+# ── Testing ───────────────────────────────────────────────────────────────────
+pytest==8.3.0
+pytest-asyncio==0.23.0
+httpx                     # juga dipakai untuk test client FastAPI
