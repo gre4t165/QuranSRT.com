@@ -1,3 +1,5 @@
+import SRTGenerator from "./components/SRTGenerator";
+
 export default function Home() {
   return (
     <main className="min-h-screen">
@@ -195,6 +197,9 @@ export default function Home() {
           </div>
         </div>
       </section>
+
+      {/* Generator Section */}
+      <SRTGenerator />
 
       {/* Footer */}
       <footer className="py-10 px-4 border-t border-border">
