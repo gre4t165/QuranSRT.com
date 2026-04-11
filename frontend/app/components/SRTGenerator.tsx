@@ -88,7 +88,6 @@ export default function SRTGenerator() {
   const [showArabic, setShowArabic] = useState(true);
 
   // Multi-translation mode
-  const [multiMode, setMultiMode] = useState(false);
   const [singleTranslation, setSingleTranslation] = useState("id_kemenag");
   const [selectedTranslations, setSelectedTranslations] = useState<Set<string>>(
     new Set(["id_kemenag"])
