@@ -90,24 +90,26 @@ async def fetch_audio_timing(
     timing_map: dict[int, dict] = {}
 
     audio_files = data.get("audio_files", [])
-    for af in audio_files:
-        verse_key = af.get("verse_key", "")  # format: "1:1", "2:255", dst
-        if not verse_key:
-            continue
+    if audio_files:
+        verse_timings = audio_files[0].get("verse_timings", [])
+        for vt in verse_timings:
+            verse_key = vt.get("verse_key", "")  # format: "1:1", "2:255", dst
+            if not verse_key:
+                continue
 
-        _, verse_num_str = verse_key.split(":")
-        verse_num = int(verse_num_str)
+            _, verse_num_str = verse_key.split(":")
+            verse_num = int(verse_num_str)
 
-        if not (start_verse <= verse_num <= end_verse):
-            continue
+            if not (start_verse <= verse_num <= end_verse):
+                continue
 
-        # Timing dalam milidetik
-        timing_map[verse_num] = {
-            "start_ms": af.get("timestamp_from", 0),
-            "end_ms":   af.get("timestamp_to", 0),
-            "segments": af.get("segments", []),   # [[word_idx, start_ms, end_ms], ...]
-            "audio_url": af.get("audio_url", ""),
-        }
+            # Timing dalam milidetik
+            timing_map[verse_num] = {
+                "start_ms": vt.get("timestamp_from", 0),
+                "end_ms":   vt.get("timestamp_to", 0),
+                "segments": vt.get("segments", []),   # [[word_idx, start_ms, end_ms], ...]
+                "audio_url": "",
+            }
 
     return timing_map
 
