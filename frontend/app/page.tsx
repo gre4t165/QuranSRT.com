@@ -52,9 +52,9 @@ export default function Home() {
 
           {/* Subheading */}
           <p className="text-lg sm:text-xl text-text-secondary max-w-2xl mx-auto mb-10 text-balance">
-            Buat file SRT untuk 114 surah dengan pilihan 14+ qari, 18+ bahasa
-            terjemahan, dan 3 mode subtitle. Langsung download SRT + MP3 tanpa
-            install apapun.
+            Buat file SRT untuk 114 surah dengan pilihan 30+ qari, 50+ bahasa
+            terjemahan, dan 4 mode subtitle termasuk Text-Only. Download
+            multi-bahasa sekaligus tanpa install apapun.
           </p>
 
           {/* CTA Buttons */}
@@ -77,9 +77,9 @@ export default function Home() {
           <div className="mt-16 grid grid-cols-2 sm:grid-cols-4 gap-6 max-w-3xl mx-auto">
             {[
               { value: "114", label: "Surah" },
-              { value: "14+", label: "Qari/Reciter" },
-              { value: "18+", label: "Bahasa Terjemahan" },
-              { value: "3", label: "Mode Subtitle" },
+              { value: "30+", label: "Qari/Reciter" },
+              { value: "50+", label: "Bahasa Terjemahan" },
+              { value: "4", label: "Mode Subtitle" },
             ].map((stat) => (
               <div key={stat.label} className="text-center">
                 <div className="font-heading text-3xl sm:text-4xl font-bold text-gold">
@@ -114,18 +114,18 @@ export default function Home() {
               },
               {
                 icon: "🎙️",
-                title: "14+ Qari Pilihan",
-                desc: "Dari Mishari Rashid hingga Abdul Basit — pilih qari favorit dengan preview audio.",
+                title: "30+ Qari Pilihan",
+                desc: "Dari Mishari Rashid hingga Abdul Basit, Al-Sudais, hingga Hani Ar-Rifai — koleksi terlengkap.",
               },
               {
                 icon: "🌍",
-                title: "18+ Bahasa Terjemahan",
-                desc: "Terjemahan Indonesia, Inggris, Melayu, Turki, Urdu, dan banyak lagi termasuk transliterasi.",
+                title: "50+ Bahasa Terjemahan",
+                desc: "Dari Indonesia, Inggris, hingga Amharic & Kurdish — download multi-bahasa sekaligus dalam satu ZIP.",
               },
               {
                 icon: "⏱️",
-                title: "3 Mode Timing",
-                desc: "WAQOF (jeda natural), VERSE (per ayat), atau STD (karakter tetap) — sesuai kebutuhan video Anda.",
+                title: "4 Mode Timing",
+                desc: "WAQOF, VERSE, STD, dan TEXT ONLY — termasuk mode tanpa audio untuk subtitle preview.",
               },
               {
                 icon: "📦",

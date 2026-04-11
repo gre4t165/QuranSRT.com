@@ -13,9 +13,10 @@ from enum import Enum
 # ── Enums ─────────────────────────────────────────────────────────────────────
 
 class SRTMode(str, Enum):
-    WAQOF  = "WAQOF"   # Pecah per tanda waqof (natural pause)
-    VERSE  = "VERSE"   # Satu ayat = satu subtitle
-    STD    = "STD"     # Standard, batas karakter per baris
+    WAQOF     = "WAQOF"      # Pecah per tanda waqof (natural pause)
+    VERSE     = "VERSE"      # Satu ayat = satu subtitle
+    STD       = "STD"        # Standard, batas karakter per baris
+    TEXT_ONLY = "TEXT_ONLY"   # Tanpa audio — timing berdasarkan panjang teks
 
 
 # ── Request & Response Models ─────────────────────────────────────────────────
@@ -25,7 +26,7 @@ class GenerateRequest(BaseModel):
     surah:           int = Field(..., ge=1, le=114, description="Nomor surah (1-114)")
     start_verse:     int = Field(..., ge=1,         description="Ayat awal")
     end_verse:       int = Field(..., ge=1,         description="Ayat akhir")
-    reciter_id:      str = Field(...,               description="ID reciter")
+    reciter_id:      str = Field("alafasy",         description="ID reciter (diabaikan jika mode TEXT_ONLY)")
     translation_key: str = Field("none",            description="Kunci terjemahan, 'none' jika tanpa terjemahan")
     mode:            SRTMode = Field(SRTMode.WAQOF, description="Mode subtitle")
     show_arabic:     bool = Field(True,             description="Tampilkan teks Arab")
@@ -40,9 +41,32 @@ class GenerateRequest(BaseModel):
 
     @field_validator("reciter_id")
     @classmethod
-    def reciter_must_exist(cls, v):
+    def reciter_must_exist(cls, v, info):
+        # Skip validation when mode is TEXT_ONLY (reciter not needed)
+        mode = info.data.get("mode")
+        if mode == SRTMode.TEXT_ONLY:
+            return v
         if v not in RECITERS:
             raise ValueError(f"Reciter '{v}' tidak ditemukan")
+        return v
+
+
+class MultiGenerateRequest(BaseModel):
+    """Request untuk generate SRT dengan beberapa terjemahan sekaligus.
+    Menghasilkan satu SRT per terjemahan + SRT Arab (seperti EveryPage Studio)."""
+    surah:             int = Field(..., ge=1, le=114, description="Nomor surah (1-114)")
+    start_verse:       int = Field(..., ge=1,         description="Ayat awal")
+    end_verse:         int = Field(..., ge=1,         description="Ayat akhir")
+    reciter_id:        str = Field("alafasy",         description="ID reciter")
+    translation_keys:  list[str] = Field(...,         description="List kode terjemahan")
+    mode:              SRTMode = Field(SRTMode.WAQOF, description="Mode subtitle")
+    show_arabic:       bool = Field(True,             description="Tampilkan teks Arab")
+
+    @field_validator("end_verse")
+    @classmethod
+    def end_must_be_gte_start(cls, v, info):
+        if info.data.get("start_verse") and v < info.data["start_verse"]:
+            raise ValueError("end_verse harus >= start_verse")
         return v
 
 
@@ -55,6 +79,15 @@ class SRTResult(BaseModel):
     surah_name_latin: str  # nama Latin
     audio_base_url:   str
     reciter_name:     str
+
+
+class MultiSRTResult(BaseModel):
+    """Hasil generate multi-translation SRT."""
+    files: list[dict]        # list of {filename, srt_content, translation_name}
+    arabic_srt: str          # konten SRT Arab
+    arabic_filename: str
+    surah_name: str
+    surah_name_latin: str
 
 
 class BatchItem(BaseModel):
@@ -91,8 +124,12 @@ class GenerateHistoryItem(BaseModel):
 # audio_url_pattern: template URL untuk download MP3 per ayat
 #   {surah} = nomor surah 3 digit (001, 002, ...)
 #   {verse} = nomor ayat 3 digit (001, 002, ...)
+#
+# Koleksi lengkap 30+ qari — diperluas dari EveryPage Studio.
+# alquran.cloud edition ID di-mapping ke alquran.cloud API (fallback data source).
 
 RECITERS: dict[str, dict] = {
+    # ── 🌟 THE LEGENDS (EGYPTIAN CLASSICS) ───────────────────────────────────
     "husary": {
         "name":              "Mahmoud Khalil Al-Husary",
         "name_ar":           "محمود خليل الحصري",
@@ -100,14 +137,16 @@ RECITERS: dict[str, dict] = {
         "audio_url_pattern": "https://download.quranicaudio.com/quran/mahmood_khaleel_al-husaree/{surah}{verse}.mp3",
         "style":             "Murattal",
         "sample_url":        "https://download.quranicaudio.com/quran/mahmood_khaleel_al-husaree/001001.mp3",
+        "cloud_id":          "ar.husary",
     },
-    "alafasy": {
-        "name":              "Mishary Rashid Alafasy",
-        "name_ar":           "مشاري راشد العفاسي",
-        "api_id":            7,
-        "audio_url_pattern": "https://download.quranicaudio.com/quran/mishaari_raashid_al_3afaasee/{surah}{verse}.mp3",
-        "style":             "Murattal",
-        "sample_url":        "https://download.quranicaudio.com/quran/mishaari_raashid_al_3afaasee/001001.mp3",
+    "husary_mujawwad": {
+        "name":              "Al-Husary (Mujawwad)",
+        "name_ar":           "الحصري (مجود)",
+        "api_id":            1,
+        "audio_url_pattern": "https://download.quranicaudio.com/quran/mahmood_khaleel_al-husaree_iza3a/{surah}{verse}.mp3",
+        "style":             "Mujawwad",
+        "sample_url":        "https://download.quranicaudio.com/quran/mahmood_khaleel_al-husaree_iza3a/001001.mp3",
+        "cloud_id":          "ar.husarymujawwad",
     },
     "abdulbasit_murattal": {
         "name":              "Abdul Basit (Murattal)",
@@ -116,6 +155,7 @@ RECITERS: dict[str, dict] = {
         "audio_url_pattern": "https://download.quranicaudio.com/quran/abdul_baset_murattal/{surah}{verse}.mp3",
         "style":             "Murattal",
         "sample_url":        "https://download.quranicaudio.com/quran/abdul_baset_murattal/001001.mp3",
+        "cloud_id":          "ar.abdulbasitmurattal",
     },
     "abdulbasit_mujawwad": {
         "name":              "Abdul Basit (Mujawwad)",
@@ -124,14 +164,7 @@ RECITERS: dict[str, dict] = {
         "audio_url_pattern": "https://download.quranicaudio.com/quran/abd_al-baset_abd_as-samad_mujawwad/{surah}{verse}.mp3",
         "style":             "Mujawwad",
         "sample_url":        "https://download.quranicaudio.com/quran/abd_al-baset_abd_as-samad_mujawwad/001001.mp3",
-    },
-    "abdulsamad": {
-        "name":              "Abdul Samad",
-        "name_ar":           "عبد الصمد",
-        "api_id":            6,
-        "audio_url_pattern": "https://download.quranicaudio.com/quran/abdurrahmaan_as-sudais_and_su'ood_ash-shuraym/{surah}{verse}.mp3",
-        "style":             "Murattal",
-        "sample_url":        "https://download.quranicaudio.com/quran/abdurrahmaan_as-sudais_and_su'ood_ash-shuraym/001001.mp3",
+        "cloud_id":          "ar.abdulbasitmujawwad",
     },
     "minshawi_murattal": {
         "name":              "Muhammad Al-Minshawi",
@@ -140,38 +173,27 @@ RECITERS: dict[str, dict] = {
         "audio_url_pattern": "https://download.quranicaudio.com/quran/muhammad_siddeeq_al-minshaawee/{surah}{verse}.mp3",
         "style":             "Murattal",
         "sample_url":        "https://download.quranicaudio.com/quran/muhammad_siddeeq_al-minshaawee/001001.mp3",
+        "cloud_id":          "ar.minshawi",
     },
     "minshawi_hq": {
-        "name":              "Al-Minshawi (HQ)",
-        "name_ar":           "المنشاوي عالي الجودة",
+        "name":              "Al-Minshawi (Mujawwad)",
+        "name_ar":           "المنشاوي (مجود)",
         "api_id":            12,
         "audio_url_pattern": "https://download.quranicaudio.com/quran/minshawi_mujawwad/{surah}{verse}.mp3",
         "style":             "Mujawwad",
         "sample_url":        "https://download.quranicaudio.com/quran/minshawi_mujawwad/001001.mp3",
+        "cloud_id":          "ar.minshawimujawwad",
     },
-    "ayyoub": {
-        "name":              "Muhammad Ayyoub",
-        "name_ar":           "محمد أيوب",
-        "api_id":            10,
-        "audio_url_pattern": "https://download.quranicaudio.com/quran/muhammad_ayyoob/{surah}{verse}.mp3",
+
+    # ── 🕋 IMAMS OF HARAMAIN (MECCA & MADINAH) ──────────────────────────────
+    "alafasy": {
+        "name":              "Mishary Rashid Alafasy",
+        "name_ar":           "مشاري راشد العفاسي",
+        "api_id":            7,
+        "audio_url_pattern": "https://download.quranicaudio.com/quran/mishaari_raashid_al_3afaasee/{surah}{verse}.mp3",
         "style":             "Murattal",
-        "sample_url":        "https://download.quranicaudio.com/quran/muhammad_ayyoob/001001.mp3",
-    },
-    "shatri": {
-        "name":              "Abu Bakr Al-Shatri",
-        "name_ar":           "أبو بكر الشاطري",
-        "api_id":            9,
-        "audio_url_pattern": "https://download.quranicaudio.com/quran/abu_bakr_ash-shaatree/{surah}{verse}.mp3",
-        "style":             "Murattal",
-        "sample_url":        "https://download.quranicaudio.com/quran/abu_bakr_ash-shaatree/001001.mp3",
-    },
-    "tablawi": {
-        "name":              "Muhammad Al-Tablawi",
-        "name_ar":           "محمد الطبلاوي",
-        "api_id":            14,
-        "audio_url_pattern": "https://download.quranicaudio.com/quran/muhammad_al-tablaawy/{surah}{verse}.mp3",
-        "style":             "Mujawwad",
-        "sample_url":        "https://download.quranicaudio.com/quran/muhammad_al-tablaawy/001001.mp3",
+        "sample_url":        "https://download.quranicaudio.com/quran/mishaari_raashid_al_3afaasee/001001.mp3",
+        "cloud_id":          "ar.alafasy",
     },
     "sudais": {
         "name":              "Abdul Rahman Al-Sudais",
@@ -180,16 +202,8 @@ RECITERS: dict[str, dict] = {
         "audio_url_pattern": "https://download.quranicaudio.com/quran/abdurrahmaan_as-sudais/{surah}{verse}.mp3",
         "style":             "Murattal",
         "sample_url":        "https://download.quranicaudio.com/quran/abdurrahmaan_as-sudais/001001.mp3",
+        "cloud_id":          "ar.abdulrahmanalsudais",
     },
-    "ghamdi": {
-        "name":              "Saad Al-Ghamdi",
-        "name_ar":           "سعد الغامدي",
-        "api_id":            8,
-        "audio_url_pattern": "https://download.quranicaudio.com/quran/saad_al-ghaamidi/{surah}{verse}.mp3",
-        "style":             "Murattal",
-        "sample_url":        "https://download.quranicaudio.com/quran/saad_al-ghaamidi/001001.mp3",
-    },
-    # ── Reciter baru (upgrade dari versi Streamlit) ──────────────────────────
     "shuraym": {
         "name":              "Saud Al-Shuraym",
         "name_ar":           "سعود الشريم",
@@ -197,6 +211,7 @@ RECITERS: dict[str, dict] = {
         "audio_url_pattern": "https://download.quranicaudio.com/quran/su'ood_ash-shuraym/{surah}{verse}.mp3",
         "style":             "Murattal",
         "sample_url":        "https://download.quranicaudio.com/quran/su'ood_ash-shuraym/001001.mp3",
+        "cloud_id":          "ar.saudshuraim",
     },
     "maher": {
         "name":              "Maher Al-Muaiqly",
@@ -205,6 +220,184 @@ RECITERS: dict[str, dict] = {
         "audio_url_pattern": "https://download.quranicaudio.com/quran/maher_al_muaiqly/{surah}{verse}.mp3",
         "style":             "Murattal",
         "sample_url":        "https://download.quranicaudio.com/quran/maher_al_muaiqly/001001.mp3",
+        "cloud_id":          "ar.mahermuaiqly",
+    },
+    "dossari": {
+        "name":              "Yasser Al-Dosari",
+        "name_ar":           "ياسر الدوسري",
+        "api_id":            16,
+        "audio_url_pattern": "https://download.quranicaudio.com/quran/yasser_ad-dussary/{surah}{verse}.mp3",
+        "style":             "Murattal",
+        "sample_url":        "https://download.quranicaudio.com/quran/yasser_ad-dussary/001001.mp3",
+        "cloud_id":          "ar.yasseraldossari",
+    },
+    "juhany": {
+        "name":              "Abdullah Al-Juhany",
+        "name_ar":           "عبدالله الجهني",
+        "api_id":            15,
+        "audio_url_pattern": "https://download.quranicaudio.com/quran/abdullaah_3awwaad_al-juhanee/{surah}{verse}.mp3",
+        "style":             "Murattal",
+        "sample_url":        "https://download.quranicaudio.com/quran/abdullaah_3awwaad_al-juhanee/001001.mp3",
+        "cloud_id":          "ar.abdullahjuhany",
+    },
+    "hudaify": {
+        "name":              "Ali Al-Hudaifi",
+        "name_ar":           "علي الحذيفي",
+        "api_id":            13,
+        "audio_url_pattern": "https://download.quranicaudio.com/quran/ali_al-hudayfee/{surah}{verse}.mp3",
+        "style":             "Murattal",
+        "sample_url":        "https://download.quranicaudio.com/quran/ali_al-hudayfee/001001.mp3",
+        "cloud_id":          "ar.hudaify",
+    },
+    "budair": {
+        "name":              "Salah Al-Budair",
+        "name_ar":           "صلاح البدير",
+        "api_id":            18,
+        "audio_url_pattern": "https://download.quranicaudio.com/quran/salaah_al-budair/{surah}{verse}.mp3",
+        "style":             "Murattal",
+        "sample_url":        "https://download.quranicaudio.com/quran/salaah_al-budair/001001.mp3",
+        "cloud_id":          "ar.salahbudair",
+    },
+
+    # ── 🕌 POPULAR & MODERN (GULF/LEVANT) ───────────────────────────────────
+    "shatri": {
+        "name":              "Abu Bakr Al-Shatri",
+        "name_ar":           "أبو بكر الشاطري",
+        "api_id":            9,
+        "audio_url_pattern": "https://download.quranicaudio.com/quran/abu_bakr_ash-shaatree/{surah}{verse}.mp3",
+        "style":             "Murattal",
+        "sample_url":        "https://download.quranicaudio.com/quran/abu_bakr_ash-shaatree/001001.mp3",
+        "cloud_id":          "ar.shatri",
+    },
+    "ajamy": {
+        "name":              "Ahmed Al-Ajmi",
+        "name_ar":           "أحمد العجمي",
+        "api_id":            8,
+        "audio_url_pattern": "https://download.quranicaudio.com/quran/ahmed_ibn_3ali_al-3ajamy/{surah}{verse}.mp3",
+        "style":             "Murattal",
+        "sample_url":        "https://download.quranicaudio.com/quran/ahmed_ibn_3ali_al-3ajamy/001001.mp3",
+        "cloud_id":          "ar.ajamy",
+    },
+    "ghamdi": {
+        "name":              "Saad Al-Ghamdi",
+        "name_ar":           "سعد الغامدي",
+        "api_id":            8,
+        "audio_url_pattern": "https://download.quranicaudio.com/quran/saad_al-ghaamidi/{surah}{verse}.mp3",
+        "style":             "Murattal",
+        "sample_url":        "https://download.quranicaudio.com/quran/saad_al-ghaamidi/001001.mp3",
+        "cloud_id":          "ar.saadalghamdi",
+    },
+    "qatami": {
+        "name":              "Nasser Al-Qatami",
+        "name_ar":           "ناصر القطامي",
+        "api_id":            19,
+        "audio_url_pattern": "https://download.quranicaudio.com/quran/nasser_al-qatami/{surah}{verse}.mp3",
+        "style":             "Murattal",
+        "sample_url":        "https://download.quranicaudio.com/quran/nasser_al-qatami/001001.mp3",
+        "cloud_id":          "ar.nasseralqatami",
+    },
+    "rifai": {
+        "name":              "Hani Ar-Rifai",
+        "name_ar":           "هاني الرفاعي",
+        "api_id":            20,
+        "audio_url_pattern": "https://download.quranicaudio.com/quran/rifai/{surah}{verse}.mp3",
+        "style":             "Emotional",
+        "sample_url":        "https://download.quranicaudio.com/quran/rifai/001001.mp3",
+        "cloud_id":          "ar.hanirifai",
+    },
+    "abbad": {
+        "name":              "Fares Abbad",
+        "name_ar":           "فارس عباد",
+        "api_id":            21,
+        "audio_url_pattern": "https://download.quranicaudio.com/quran/fares/{surah}{verse}.mp3",
+        "style":             "Murattal",
+        "sample_url":        "https://download.quranicaudio.com/quran/fares/001001.mp3",
+        "cloud_id":          "ar.faresabbad",
+    },
+    "basfar": {
+        "name":              "Abdullah Basfar",
+        "name_ar":           "عبدالله بصفر",
+        "api_id":            22,
+        "audio_url_pattern": "https://download.quranicaudio.com/quran/abdullaah_basfar/{surah}{verse}.mp3",
+        "style":             "Murattal",
+        "sample_url":        "https://download.quranicaudio.com/quran/abdullaah_basfar/001001.mp3",
+        "cloud_id":          "ar.abdullahbasfar",
+    },
+    "tunaiji": {
+        "name":              "Khalifa Al-Tunaiji",
+        "name_ar":           "خليفة الطنيجي",
+        "api_id":            23,
+        "audio_url_pattern": "https://download.quranicaudio.com/quran/khalifah_at-tunayjee/{surah}{verse}.mp3",
+        "style":             "Murattal",
+        "sample_url":        "https://download.quranicaudio.com/quran/khalifah_at-tunayjee/001001.mp3",
+        "cloud_id":          "ar.tunaiji",
+    },
+    "jibreel": {
+        "name":              "Muhammad Jibreel",
+        "name_ar":           "محمد جبريل",
+        "api_id":            24,
+        "audio_url_pattern": "https://download.quranicaudio.com/quran/muhammad_jibreel/{surah}{verse}.mp3",
+        "style":             "Murattal",
+        "sample_url":        "https://download.quranicaudio.com/quran/muhammad_jibreel/001001.mp3",
+        "cloud_id":          "ar.muhammadjibreel",
+    },
+    "matroud": {
+        "name":              "Abdullah Al-Matrood",
+        "name_ar":           "عبدالله المطرود",
+        "api_id":            25,
+        "audio_url_pattern": "https://download.quranicaudio.com/quran/abdullaah_al-matrood/{surah}{verse}.mp3",
+        "style":             "Murattal",
+        "sample_url":        "https://download.quranicaudio.com/quran/abdullaah_al-matrood/001001.mp3",
+        "cloud_id":          "ar.abdullahmatroud",
+    },
+
+    # ── 📚 LEARNING & TAJWEED ────────────────────────────────────────────────
+    "banna": {
+        "name":              "Mahmoud Ali Al-Banna",
+        "name_ar":           "محمود علي البنا",
+        "api_id":            26,
+        "audio_url_pattern": "https://download.quranicaudio.com/quran/mahmoud_ali_al_banna/{surah}{verse}.mp3",
+        "style":             "Murattal",
+        "sample_url":        "https://download.quranicaudio.com/quran/mahmoud_ali_al_banna/001001.mp3",
+        "cloud_id":          "ar.mahmoudalibanna",
+    },
+
+    # ── OTHER ────────────────────────────────────────────────────────────────
+    "ayyoub": {
+        "name":              "Muhammad Ayyoub",
+        "name_ar":           "محمد أيوب",
+        "api_id":            10,
+        "audio_url_pattern": "https://download.quranicaudio.com/quran/muhammad_ayyoob/{surah}{verse}.mp3",
+        "style":             "Murattal",
+        "sample_url":        "https://download.quranicaudio.com/quran/muhammad_ayyoob/001001.mp3",
+        "cloud_id":          "ar.ayyoub",
+    },
+    "tablawi": {
+        "name":              "Muhammad Al-Tablawi",
+        "name_ar":           "محمد الطبلاوي",
+        "api_id":            14,
+        "audio_url_pattern": "https://download.quranicaudio.com/quran/muhammad_al-tablaawy/{surah}{verse}.mp3",
+        "style":             "Mujawwad",
+        "sample_url":        "https://download.quranicaudio.com/quran/muhammad_al-tablaawy/001001.mp3",
+        "cloud_id":          "ar.tablawi",
+    },
+    "abdulsamad": {
+        "name":              "Abdul Samad",
+        "name_ar":           "عبد الصمد",
+        "api_id":            6,
+        "audio_url_pattern": "https://download.quranicaudio.com/quran/abdurrahmaan_as-sudais_and_su'ood_ash-shuraym/{surah}{verse}.mp3",
+        "style":             "Murattal",
+        "sample_url":        "https://download.quranicaudio.com/quran/abdurrahmaan_as-sudais_and_su'ood_ash-shuraym/001001.mp3",
+        "cloud_id":          "ar.abdulsamad",
+    },
+    "baleela": {
+        "name":              "Bandar Baleela",
+        "name_ar":           "بندر بليلة",
+        "api_id":            27,
+        "audio_url_pattern": "https://download.quranicaudio.com/quran/bandar_balila/{surah}{verse}.mp3",
+        "style":             "Murattal",
+        "sample_url":        "https://download.quranicaudio.com/quran/bandar_balila/001001.mp3",
+        "cloud_id":          "ar.bandarbaleela",
     },
 }
 
@@ -212,6 +405,9 @@ RECITERS: dict[str, dict] = {
 # ── Data Statis: Terjemahan ───────────────────────────────────────────────────
 # id: ID terjemahan di qurancdn.com API
 # lang_code: kode bahasa ISO 639-1
+# cloud_id: identifier di api.alquran.cloud (fallback)
+#
+# Koleksi lengkap 50+ bahasa — diperluas dari EveryPage Studio.
 
 TRANSLATIONS: dict[str, dict] = {
     # ── Khusus ──────────────────────────────────────────────────────────────
@@ -220,6 +416,7 @@ TRANSLATIONS: dict[str, dict] = {
         "flag": "🔤",
         "id":   None,  # Ditangani secara khusus di srt_generator
         "lang": "xx",
+        "cloud_id": "en.transliteration",
     },
 
     # ── Indonesia ────────────────────────────────────────────────────────────
@@ -228,18 +425,21 @@ TRANSLATIONS: dict[str, dict] = {
         "flag": "🇮🇩",
         "id":   33,
         "lang": "id",
+        "cloud_id": "id.indonesian",
     },
     "id_jalalayn": {
         "name": "Indonesia — Tafsir Jalalayn",
         "flag": "🇮🇩",
         "id":   74,
         "lang": "id",
+        "cloud_id": "id.jalalayn",
     },
     "id_quraish": {
         "name": "Indonesia — Tafsir Quraish Shihab",
         "flag": "🇮🇩",
         "id":   76,
         "lang": "id",
+        "cloud_id": None,
     },
 
     # ── Malaysia ──────────────────────────────────────────────────────────────
@@ -248,6 +448,7 @@ TRANSLATIONS: dict[str, dict] = {
         "flag": "🇲🇾",
         "id":   39,
         "lang": "ms",
+        "cloud_id": "ms.basmeih",
     },
 
     # ── Inggris ───────────────────────────────────────────────────────────────
@@ -256,94 +457,371 @@ TRANSLATIONS: dict[str, dict] = {
         "flag": "🇬🇧",
         "id":   20,
         "lang": "en",
+        "cloud_id": "en.sahih",
     },
     "en_khattab": {
         "name": "English — Dr. Khattab",
         "flag": "🇬🇧",
         "id":   131,
         "lang": "en",
+        "cloud_id": "en.khattab",
     },
     "en_yusufali": {
         "name": "English — Yusuf Ali",
         "flag": "🇬🇧",
         "id":   22,
         "lang": "en",
+        "cloud_id": "en.yusufali",
     },
     "en_pickthall": {
         "name": "English — Pickthall",
         "flag": "🇬🇧",
         "id":   19,
         "lang": "en",
+        "cloud_id": "en.pickthall",
+    },
+    "en_arberry": {
+        "name": "English — Arberry",
+        "flag": "🇬🇧",
+        "id":   None,
+        "lang": "en",
+        "cloud_id": "en.arberry",
+    },
+    "en_asad": {
+        "name": "English — Muhammad Asad",
+        "flag": "🇬🇧",
+        "id":   None,
+        "lang": "en",
+        "cloud_id": "en.asad",
+    },
+    "en_maududi": {
+        "name": "English — Maududi (Tafhim)",
+        "flag": "🇬🇧",
+        "id":   None,
+        "lang": "en",
+        "cloud_id": "en.maududi",
     },
 
     # ── Asia Tenggara ────────────────────────────────────────────────────────
     "tl_tagalog": {
-        "name": "Tagalog",
+        "name": "Tagalog (Philippines)",
         "flag": "🇵🇭",
         "id":   64,
         "lang": "tl",
+        "cloud_id": "tl.tagalog",
     },
     "vi_vietnamese": {
         "name": "Vietnamese",
         "flag": "🇻🇳",
         "id":   75,
         "lang": "vi",
+        "cloud_id": "vi.rowi",
     },
 
-    # ── Tambahan baru ────────────────────────────────────────────────────────
-    "tr_turkish": {
-        "name": "Türkçe",
-        "flag": "🇹🇷",
-        "id":   52,
-        "lang": "tr",
+    # ── Arabic Tafsir ────────────────────────────────────────────────────────
+    "ar_jalalayn": {
+        "name": "Arabic — Jalalayn",
+        "flag": "🇸🇦",
+        "id":   None,
+        "lang": "ar",
+        "cloud_id": "ar.jalalayn",
     },
+    "ar_muyassar": {
+        "name": "Arabic — Muyassar",
+        "flag": "🇸🇦",
+        "id":   None,
+        "lang": "ar",
+        "cloud_id": "ar.muyassar",
+    },
+
+    # ── Eropa ────────────────────────────────────────────────────────────────
     "fr_french": {
-        "name": "Français",
+        "name": "Français — Hamidullah",
         "flag": "🇫🇷",
         "id":   31,
         "lang": "fr",
+        "cloud_id": "fr.hamidullah",
     },
     "de_german": {
-        "name": "Deutsch",
+        "name": "Deutsch — Bubenheim",
         "flag": "🇩🇪",
         "id":   27,
         "lang": "de",
+        "cloud_id": "de.bubenheim",
     },
     "es_spanish": {
-        "name": "Español",
+        "name": "Español — Cortes",
         "flag": "🇪🇸",
         "id":   83,
         "lang": "es",
+        "cloud_id": "es.cortes",
+    },
+    "it_italian": {
+        "name": "Italiano — Piccardo",
+        "flag": "🇮🇹",
+        "id":   None,
+        "lang": "it",
+        "cloud_id": "it.piccardo",
+    },
+    "pt_portuguese": {
+        "name": "Português — El Hayek",
+        "flag": "🇵🇹",
+        "id":   None,
+        "lang": "pt",
+        "cloud_id": "pt.elhayek",
+    },
+    "nl_dutch": {
+        "name": "Dutch — Keyzer",
+        "flag": "🇳🇱",
+        "id":   None,
+        "lang": "nl",
+        "cloud_id": "nl.keyzer",
+    },
+    "sv_swedish": {
+        "name": "Swedish — Bernstrom",
+        "flag": "🇸🇪",
+        "id":   None,
+        "lang": "sv",
+        "cloud_id": "sv.bernstrom",
+    },
+    "no_norwegian": {
+        "name": "Norwegian — Einar Berg",
+        "flag": "🇳🇴",
+        "id":   None,
+        "lang": "no",
+        "cloud_id": "no.berg",
     },
     "ru_russian": {
-        "name": "Русский",
+        "name": "Русский — Kuliev",
         "flag": "🇷🇺",
         "id":   45,
         "lang": "ru",
+        "cloud_id": "ru.kuliev",
     },
+    "bs_bosnian": {
+        "name": "Bosnian — Korkut",
+        "flag": "🇧🇦",
+        "id":   None,
+        "lang": "bs",
+        "cloud_id": "bs.korkut",
+    },
+    "sq_albanian": {
+        "name": "Albanian — Nahi",
+        "flag": "🇦🇱",
+        "id":   None,
+        "lang": "sq",
+        "cloud_id": "sq.nahi",
+    },
+    "pl_polish": {
+        "name": "Polish — Bielawskiego",
+        "flag": "🇵🇱",
+        "id":   None,
+        "lang": "pl",
+        "cloud_id": "pl.bielawskiego",
+    },
+    "cs_czech": {
+        "name": "Czech — Hrbek",
+        "flag": "🇨🇿",
+        "id":   None,
+        "lang": "cs",
+        "cloud_id": "cs.hrbek",
+    },
+    "ro_romanian": {
+        "name": "Romanian — Grigore",
+        "flag": "🇷🇴",
+        "id":   None,
+        "lang": "ro",
+        "cloud_id": "ro.grigore",
+    },
+    "bg_bulgarian": {
+        "name": "Bulgarian",
+        "flag": "🇧🇬",
+        "id":   None,
+        "lang": "bg",
+        "cloud_id": "bg.theophanov",
+    },
+
+    # ── Asia Selatan (India/Pakistan/Bangladesh) ─────────────────────────────
     "ur_urdu": {
-        "name": "اردو",
+        "name": "اردو — Jalandhry",
         "flag": "🇵🇰",
         "id":   54,
         "lang": "ur",
+        "cloud_id": "ur.jalandhry",
     },
-    "bn_bengali": {
-        "name": "বাংলা",
-        "flag": "🇧🇩",
-        "id":   120,
-        "lang": "bn",
+    "ur_maududi": {
+        "name": "اردو — Maududi",
+        "flag": "🇵🇰",
+        "id":   None,
+        "lang": "ur",
+        "cloud_id": "ur.maududi",
     },
     "hi_hindi": {
-        "name": "हिन्दी",
+        "name": "हिन्दी — Farooq Khan",
         "flag": "🇮🇳",
         "id":   122,
         "lang": "hi",
+        "cloud_id": "hi.farooq",
     },
+    "bn_bengali": {
+        "name": "বাংলা — Muhiuddin Khan",
+        "flag": "🇧🇩",
+        "id":   120,
+        "lang": "bn",
+        "cloud_id": "bn.bengali",
+    },
+    "ta_tamil": {
+        "name": "Tamil",
+        "flag": "🇮🇳",
+        "id":   None,
+        "lang": "ta",
+        "cloud_id": "ta.tamil",
+    },
+    "ml_malayalam": {
+        "name": "Malayalam",
+        "flag": "🇮🇳",
+        "id":   None,
+        "lang": "ml",
+        "cloud_id": "ml.abdulhameed",
+    },
+    "te_telugu": {
+        "name": "Telugu",
+        "flag": "🇮🇳",
+        "id":   None,
+        "lang": "te",
+        "cloud_id": "te.divya",
+    },
+    "gu_gujarati": {
+        "name": "Gujarati",
+        "flag": "🇮🇳",
+        "id":   None,
+        "lang": "gu",
+        "cloud_id": "gu.shaikh",
+    },
+
+    # ── Timur Tengah & Asia Tengah ───────────────────────────────────────────
+    "tr_turkish": {
+        "name": "Türkçe — Diyanet",
+        "flag": "🇹🇷",
+        "id":   52,
+        "lang": "tr",
+        "cloud_id": "tr.diyanet",
+    },
+    "fa_persian": {
+        "name": "فارسی — Ghomshei",
+        "flag": "🇮🇷",
+        "id":   None,
+        "lang": "fa",
+        "cloud_id": "fa.ghomshei",
+    },
+    "fa_makarem": {
+        "name": "فارسی — Makarem Shirazi",
+        "flag": "🇮🇷",
+        "id":   None,
+        "lang": "fa",
+        "cloud_id": "fa.makarem",
+    },
+    "uz_uzbek": {
+        "name": "Uzbek — Mansour",
+        "flag": "🇺🇿",
+        "id":   None,
+        "lang": "uz",
+        "cloud_id": "uz.sodik",
+    },
+    "az_azerbaijani": {
+        "name": "Azerbaijani — Musayev",
+        "flag": "🇦🇿",
+        "id":   None,
+        "lang": "az",
+        "cloud_id": "az.musayev",
+    },
+    "ku_kurdish": {
+        "name": "Kurdish — Asan",
+        "flag": "🏳️",
+        "id":   None,
+        "lang": "ku",
+        "cloud_id": "ku.asan",
+    },
+    "ps_pashto": {
+        "name": "Pashto — Zakaria",
+        "flag": "🇦🇫",
+        "id":   None,
+        "lang": "ps",
+        "cloud_id": "ps.abdulwali",
+    },
+    "tg_tajik": {
+        "name": "Tajik",
+        "flag": "🇹🇯",
+        "id":   None,
+        "lang": "tg",
+        "cloud_id": "tg.ayati",
+    },
+    "kk_kazakh": {
+        "name": "Kazakh",
+        "flag": "🇰🇿",
+        "id":   None,
+        "lang": "kk",
+        "cloud_id": "kk.altape",
+    },
+
+    # ── Asia Timur ───────────────────────────────────────────────────────────
     "zh_chinese": {
-        "name": "中文",
+        "name": "中文 — Ma Jian",
         "flag": "🇨🇳",
         "id":   109,
         "lang": "zh",
+        "cloud_id": "zh.jian",
+    },
+    "ja_japanese": {
+        "name": "日本語 — Ryoichi Mita",
+        "flag": "🇯🇵",
+        "id":   None,
+        "lang": "ja",
+        "cloud_id": "ja.mita",
+    },
+    "ko_korean": {
+        "name": "한국어",
+        "flag": "🇰🇷",
+        "id":   None,
+        "lang": "ko",
+        "cloud_id": "ko.korean",
+    },
+    "th_thai": {
+        "name": "ไทย",
+        "flag": "🇹🇭",
+        "id":   None,
+        "lang": "th",
+        "cloud_id": "th.thai",
+    },
+
+    # ── Afrika ───────────────────────────────────────────────────────────────
+    "so_somali": {
+        "name": "Somali — Abduh",
+        "flag": "🇸🇴",
+        "id":   None,
+        "lang": "so",
+        "cloud_id": "so.abduh",
+    },
+    "sw_swahili": {
+        "name": "Swahili — Barwani",
+        "flag": "🇹🇿",
+        "id":   None,
+        "lang": "sw",
+        "cloud_id": "sw.barwani",
+    },
+    "ha_hausa": {
+        "name": "Hausa — Gumi",
+        "flag": "🇳🇬",
+        "id":   None,
+        "lang": "ha",
+        "cloud_id": "ha.gumi",
+    },
+    "am_amharic": {
+        "name": "Amharic",
+        "flag": "🇪🇹",
+        "id":   None,
+        "lang": "am",
+        "cloud_id": "am.sadiq",
     },
 }
 

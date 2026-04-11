@@ -8,8 +8,8 @@ memanggil core engine, dan mengembalikan file SRT atau ZIP.
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import Response
 
-from core.models import GenerateRequest, SURAH_DATA
-from core.srt_generator import generate_srt, generate_zip
+from core.models import GenerateRequest, MultiGenerateRequest, SURAH_DATA
+from core.srt_generator import generate_srt, generate_zip, generate_multi_srt, generate_multi_zip
 
 router = APIRouter()
 
@@ -126,3 +126,92 @@ async def preview_srt_endpoint(request: GenerateRequest):
         "surah_name":     result.surah_name_latin,
         "reciter_name":   result.reciter_name,
     }
+
+
+# ── Multi-Translation Endpoints (EveryPage Studio mode) ──────────────────────
+
+@router.post("/multi/srt")
+async def generate_multi_srt_endpoint(request: MultiGenerateRequest):
+    """
+    Generate beberapa file SRT sekaligus (satu per terjemahan + SRT Arab).
+    Response berupa JSON dengan semua konten SRT.
+    """
+    surah_info = SURAH_DATA.get(request.surah)
+    if not surah_info:
+        raise HTTPException(status_code=400, detail="Nomor surah tidak valid")
+
+    max_verse = surah_info["verse_count"]
+    if request.end_verse > max_verse:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Surah {surah_info['name_simple']} hanya memiliki {max_verse} ayat"
+        )
+
+    if not request.translation_keys:
+        raise HTTPException(status_code=400, detail="Pilih minimal 1 bahasa terjemahan")
+
+    if len(request.translation_keys) > 10:
+        raise HTTPException(
+            status_code=400,
+            detail="Maksimal 10 bahasa per request"
+        )
+
+    try:
+        result = await generate_multi_srt(request)
+    except RuntimeError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+
+    return {
+        "arabic_filename": result.arabic_filename,
+        "arabic_srt": result.arabic_srt,
+        "surah_name": result.surah_name,
+        "surah_name_latin": result.surah_name_latin,
+        "files": result.files,
+    }
+
+
+@router.post("/multi/zip")
+async def generate_multi_zip_endpoint(request: MultiGenerateRequest):
+    """
+    Generate ZIP berisi semua SRT (Arab + terjemahan) + MP3 audio.
+    Replikasi output EveryPage Studio dalam format web.
+    """
+    surah_info = SURAH_DATA.get(request.surah)
+    if not surah_info:
+        raise HTTPException(status_code=400, detail="Nomor surah tidak valid")
+
+    max_verse = surah_info["verse_count"]
+    if request.end_verse > max_verse:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Surah {surah_info['name_simple']} hanya memiliki {max_verse} ayat"
+        )
+
+    verse_count = request.end_verse - request.start_verse + 1
+    if verse_count > 50:
+        raise HTTPException(
+            status_code=400,
+            detail="Download ZIP multi-bahasa maksimal 50 ayat per request."
+        )
+
+    if not request.translation_keys:
+        raise HTTPException(status_code=400, detail="Pilih minimal 1 bahasa terjemahan")
+
+    if len(request.translation_keys) > 10:
+        raise HTTPException(
+            status_code=400,
+            detail="Maksimal 10 bahasa per request"
+        )
+
+    try:
+        zip_bytes, zip_filename = await generate_multi_zip(request)
+    except RuntimeError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+
+    return Response(
+        content=zip_bytes,
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="{zip_filename}"',
+        }
+    )

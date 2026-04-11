@@ -39,9 +39,9 @@ quransrt/
 │   ├── .env.example       ← template env vars
 │   ├── core/
 │   │   ├── models.py         ← semua data model + data statis (RECITERS, TRANSLATIONS, SURAH_DATA)
-│   │   └── srt_generator.py  ← logika inti: generate SRT
+│   │   └── srt_generator.py  ← logika inti: generate SRT (single + multi-translation)
 │   └── api/routes/
-│       ├── generate.py  ← POST /api/generate/srt, /zip, /preview
+│       ├── generate.py  ← POST /api/generate/srt, /zip, /preview, /multi/srt, /multi/zip
 │       ├── quran.py     ← GET /api/quran/surahs, /reciters, /translations
 │       ├── batch.py     ← POST /api/batch/generate (Pro, SSE streaming)
 │       └── user.py      ← GET/POST /api/user/history, /presets
@@ -68,13 +68,15 @@ quransrt/
 ## Fitur Utama
 
 1. Generate SRT dari 114 surah Al-Quran
-2. 14+ reciter dengan audio preview
-3. 18+ bahasa terjemahan + transliterasi
-4. 3 mode subtitle: WAQOF (natural pause), VERSE (per ayat), STD (fixed chars)
+2. 30+ reciter dengan audio preview
+3. 50+ bahasa terjemahan + transliterasi
+4. 4 mode subtitle: WAQOF (natural pause), VERSE (per ayat), STD (fixed chars), TEXT_ONLY (tanpa audio)
 5. Bundle download SRT + MP3 ZIP
-6. Live preview SRT sebelum download
-7. Sistem akun (Supabase Auth): history, presets
-8. Batch generate — fitur Pro (SSE streaming progress)
+6. Multi-translation: generate beberapa bahasa sekaligus dalam satu ZIP (ala EveryPage Studio)
+7. Live preview SRT sebelum download
+8. Sistem akun (Supabase Auth): history, presets
+9. Batch generate — fitur Pro (SSE streaming progress)
+10. Fallback API: gunakan qurancdn.com + alquran.cloud sebagai sumber data
 
 ---
 
@@ -83,9 +85,12 @@ quransrt/
 - Semua logika bisnis ada di **backend** — frontend hanya memanggil API
 - Audio fetched dari `quranicaudio.com` — tidak dihost sendiri
 - Timing data dari `api.qurancdn.com` — sudah ada timing per kata (segmen)
+- Fallback terjemahan dari `api.alquran.cloud` — untuk bahasa yang tidak ada di qurancdn
 - Mode WAQOF: pecah ayat berdasarkan karakter tanda waqof dalam teks Arab
 - Mode VERSE: satu ayat = satu blok SRT
 - Mode STD: split terjemahan per 42 karakter per baris
+- Mode TEXT_ONLY: timing berdasarkan panjang teks (tanpa audio), cocok untuk preview
+- Multi-translation endpoint: logika dari EveryPage Studio Desktop, generate 1 SRT per bahasa
 - Batch endpoint menggunakan SSE agar progress terlihat real-time
 
 ---
