@@ -3,6 +3,10 @@ QuranSRT Backend — FastAPI
 Entry point aplikasi. Menginisialisasi app, middleware, dan routing.
 """
 
+import os
+from dotenv import load_dotenv
+load_dotenv()
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
@@ -33,14 +37,20 @@ app = FastAPI(
 
 # ── Middleware ────────────────────────────────────────────────────────────────
 
-# CORS: izinkan frontend quransrt.com memanggil API ini
+# CORS: izinkan frontend memanggil API ini.
+# Set env var CORS_ORIGINS (comma-separated) untuk override di production.
+_raw_origins = os.environ.get("CORS_ORIGINS", "")
+_env_origins = [o.strip() for o in _raw_origins.split(",") if o.strip()]
+_default_origins = [
+    "https://quransrt.com",
+    "https://www.quransrt.com",
+    "http://localhost:3000",   # untuk development lokal
+]
+_allow_origins = _env_origins if _env_origins else _default_origins
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "https://quransrt.com",
-        "https://www.quransrt.com",
-        "http://localhost:3000",   # untuk development lokal
-    ],
+    allow_origins=_allow_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

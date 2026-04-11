@@ -41,8 +41,8 @@ VERSES_API  = "https://api.qurancdn.com/api/qdc/verses/by_chapter/{surah}"
 TAFSIR_API  = "https://api.qurancdn.com/api/qdc/tafsirs/{tafsir_id}/by_chapter/{surah}"
 
 # Fallback: alquran.cloud API (sumber data EveryPage Studio)
-CLOUD_API = "http://api.alquran.cloud/v1/ayah/{surah}:{verse}/{edition}"
-CLOUD_ARABIC_API = "http://api.alquran.cloud/v1/ayah/{surah}:{verse}/quran-simple"
+CLOUD_API = "https://api.alquran.cloud/v1/ayah/{surah}:{verse}/{edition}"
+CLOUD_ARABIC_API = "https://api.alquran.cloud/v1/ayah/{surah}:{verse}/quran-simple"
 
 # Waqof marks — karakter dalam teks Arab yang menandai titik berhenti natural
 # Ketika mode WAQOF aktif, subtitle dipecah di titik-titik ini
