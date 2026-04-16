@@ -1,29 +1,14 @@
-# ── Python ────────────────────────────────────────────────────────────────────
-__pycache__/
-*.py[cod]
-*.egg-info/
-dist/
-build/
-.venv/
-venv/
-env/
-
-# ── Environment ──────────────────────────────────────────────────────────────
-.env
+```
+# Environment variables
 .env.local
-.env.production
-backend/.env
+.env.*
 
-# ── Node ──────────────────────────────────────────────────────────────────────
+# Dependencies
 node_modules/
-frontend/.next/
-frontend/out/
 
-# ── IDE ───────────────────────────────────────────────────────────────────────
+# Editors
 .vscode/
-.idea/
-*.swp
 
-# ── OS ────────────────────────────────────────────────────────────────────────
-.DS_Store
-Thumbs.db
+# Logs
+*.log
+```

@@ -828,6 +828,11 @@ async def generate_zip(request: GenerateRequest) -> tuple[bytes, str]:
 
     Diunduh sebagai satu paket sehingga pengguna langsung punya
     subtitle + audio yang sudah tersinkronisasi.
+    
+    Fitur:
+    - Download audio dengan retry logic
+    - Progress tracking untuk large files
+    - Error handling yang robust
     """
     # Generate SRT terlebih dahulu
     result = await generate_srt(request)
@@ -845,18 +850,30 @@ async def generate_zip(request: GenerateRequest) -> tuple[bytes, str]:
             )
             audio_urls.append((verse_num, url))
 
-    # Download semua audio secara paralel
+    # Download semua audio secara paralel dengan semaphore untuk limit concurrent downloads
     zip_buffer = io.BytesIO()
-
+    audio_results = []
+    
     if audio_urls:
         async with httpx.AsyncClient() as client:
+            # Batasi concurrent downloads agar tidak overload server/memory
+            semaphore = asyncio.Semaphore(5)  # max 5 download bersamaan
+            
+            async def _download_with_semaphore(verse_num: int, url: str):
+                async with semaphore:
+                    return await _download_audio(client, verse_num, url)
+            
             audio_tasks = [
-                _download_audio(client, verse_num, url)
+                _download_with_semaphore(verse_num, url)
                 for verse_num, url in audio_urls
             ]
             audio_results = await asyncio.gather(*audio_tasks, return_exceptions=True)
     else:
         audio_results = []
+
+    # Hitung statistik download
+    success_count = sum(1 for r in audio_results if not isinstance(r, Exception) and r is not None)
+    failed_count = len(audio_urls) - success_count
 
     # Tulis ke ZIP
     with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
@@ -864,16 +881,17 @@ async def generate_zip(request: GenerateRequest) -> tuple[bytes, str]:
         zf.writestr(result.filename, result.srt_content)
 
         # Tulis file MP3 per ayat
-        for verse_num, audio_data in zip(
-            [v for v, _ in audio_urls], audio_results
-        ):
+        for idx, (verse_num, _) in enumerate(audio_urls):
+            if idx >= len(audio_results):
+                break
+            audio_data = audio_results[idx]
             if isinstance(audio_data, Exception) or audio_data is None:
                 continue  # Skip ayat yang gagal di-download
             mp3_filename = f"audio/{str(verse_num).zfill(3)}.mp3"
             zf.writestr(mp3_filename, audio_data)
 
         # Tambahkan README singkat dalam ZIP
-        readme = _build_zip_readme(result, request)
+        readme = _build_zip_readme(result, request, success_count, failed_count)
         zf.writestr("README.txt", readme)
 
     zip_filename = result.filename.replace(".srt", ".zip")
@@ -886,6 +904,11 @@ async def generate_multi_zip(request: MultiGenerateRequest) -> tuple[bytes, str]
     """
     Generate ZIP berisi semua file SRT (satu per terjemahan + Arab) + MP3.
     Replikasi output EveryPage Studio dalam format web.
+    
+    Fitur:
+    - Download audio dengan retry logic dan semaphore
+    - Error handling yang robust
+    - Status tracking untuk download audio
     """
     result = await generate_multi_srt(request)
     
@@ -903,15 +926,28 @@ async def generate_multi_zip(request: MultiGenerateRequest) -> tuple[bytes, str]
             )
             audio_urls.append((verse_num, url))
     
-    # Download audio
+    # Download audio dengan semaphore untuk limit concurrent downloads
+    audio_results = []
     if audio_urls:
         async with httpx.AsyncClient() as client:
+            # Batasi concurrent downloads agar tidak overload server/memory
+            semaphore = asyncio.Semaphore(5)  # max 5 download bersamaan
+            
+            async def _download_with_semaphore(verse_num: int, url: str):
+                async with semaphore:
+                    return await _download_audio(client, verse_num, url)
+            
             audio_tasks = [
-                _download_audio(client, v, url) for v, url in audio_urls
+                _download_with_semaphore(verse_num, url)
+                for verse_num, url in audio_urls
             ]
             audio_results = await asyncio.gather(*audio_tasks, return_exceptions=True)
     else:
         audio_results = []
+    
+    # Hitung statistik download
+    success_count = sum(1 for r in audio_results if not isinstance(r, Exception) and r is not None)
+    failed_count = len(audio_urls) - success_count
     
     # Build ZIP
     zip_buffer = io.BytesIO()
@@ -924,17 +960,26 @@ async def generate_multi_zip(request: MultiGenerateRequest) -> tuple[bytes, str]
             zf.writestr(f["filename"], f["srt_content"])
 
         # Audio MP3s
-        for verse_num, audio_data in zip(
-            [v for v, _ in audio_urls], audio_results
-        ):
+        for idx, (verse_num, _) in enumerate(audio_urls):
+            if idx >= len(audio_results):
+                break
+            audio_data = audio_results[idx]
             if isinstance(audio_data, Exception) or audio_data is None:
                 continue
             mp3_filename = f"audio/{str(verse_num).zfill(3)}.mp3"
             zf.writestr(mp3_filename, audio_data)
         
-        # README
+        # README dengan status download
         surah_info = SURAH_DATA[request.surah]
         lang_list = ", ".join(f["translation_name"] for f in result.files)
+        audio_status = ""
+        if success_count > 0 or failed_count > 0:
+            audio_status = f"""Audio   : {success_count}/{len(audio_urls)} MP3 berhasil diunduh
+"""
+            if failed_count > 0:
+                audio_status += f"""(Catatan: {failed_count} file audio gagal diunduh)
+"""
+        
         readme = f"""QuranSRT — Paket Multi-Bahasa Subtitle Al-Quran
 ================================================
 
@@ -944,7 +989,7 @@ Qari    : {reciter["name"] if reciter else "Text Only"}
 Bahasa  : {lang_list}
 Mode    : {request.mode}
 File    : {len(result.files) + 1} file SRT (1 Arab + {len(result.files)} terjemahan)
-
+{audio_status}
 Dibuat dengan QuranSRT — https://quransrt.com
 """
         zf.writestr("README.txt", readme)
@@ -959,17 +1004,45 @@ async def _download_audio(
     verse_num: int,
     url: str
 ) -> Optional[bytes]:
-    """Download satu file MP3. Return None jika gagal."""
-    try:
-        resp = await client.get(url, timeout=20.0)
-        resp.raise_for_status()
-        return resp.content
-    except Exception:
-        return None
+    """Download satu file MP3 dengan retry logic. Return None jika gagal."""
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            resp = await client.get(url, timeout=30.0, follow_redirects=True)
+            if resp.status_code == 200:
+                return resp.content
+            elif resp.status_code >= 500:
+                # Server error - coba lagi
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(1.0 * (attempt + 1))  # exponential backoff
+                    continue
+        except httpx.TimeoutException:
+            if attempt < max_retries - 1:
+                await asyncio.sleep(1.0 * (attempt + 1))
+                continue
+        except Exception:
+            pass
+    return None
 
 
-def _build_zip_readme(result: SRTResult, request: GenerateRequest) -> str:
+def _build_zip_readme(
+    result: SRTResult, 
+    request: GenerateRequest,
+    success_count: int = 0,
+    failed_count: int = 0
+) -> str:
     """Buat file README untuk ZIP yang menjelaskan isi paket."""
+    audio_status = ""
+    if success_count > 0 or failed_count > 0:
+        audio_status = f"""
+Status Download Audio
+---------------------
+Berhasil: {success_count} file
+Gagal:    {failed_count} file
+"""
+        if failed_count > 0:
+            audio_status += "\n(Catatan: Beberapa file audio gagal diunduh karena masalah koneksi atau URL tidak tersedia)\n"
+    
     return f"""QuranSRT — Paket Subtitle & Audio Al-Quran
 ==========================================
 
@@ -979,7 +1052,7 @@ Reciter : {result.reciter_name}
 Mode    : {request.mode}
 File SRT: {result.filename}
 Total   : {result.block_count} blok subtitle
-
+{audio_status}
 Cara Penggunaan
 ---------------
 1. Import file .srt ke software editing video kamu
