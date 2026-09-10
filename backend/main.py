@@ -9,7 +9,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 from contextlib import asynccontextmanager
 import logging
 
-from api.routes import generate, quran, batch, user
+from api.routes import generate, quran, batch, user, storyboard
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -55,6 +55,7 @@ app.include_router(quran.router,    prefix="/api/quran",    tags=["Quran Data"])
 app.include_router(generate.router, prefix="/api/generate", tags=["Generator"])
 app.include_router(batch.router,    prefix="/api/batch",    tags=["Batch (Pro)"])
 app.include_router(user.router,     prefix="/api/user",     tags=["User"])
+app.include_router(storyboard.router, prefix="/api/storyboard", tags=["Storyboard Creator"])
 
 
 @app.get("/", tags=["Health"])

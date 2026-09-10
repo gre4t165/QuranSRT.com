@@ -8,6 +8,18 @@ data statis (daftar reciter, terjemahan, surah).
 from pydantic import BaseModel, Field, field_validator
 from typing import Optional, Literal
 from enum import Enum
+from datetime import datetime, timezone
+import uuid
+
+
+def _now_iso() -> str:
+    """Timestamp ISO-8601 UTC — dipakai sebagai created_at/updated_at."""
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _new_id(prefix: str) -> str:
+    """ID pendek unik, diawali prefix (mis. 'panel_ab12cd34')."""
+    return f"{prefix}_{uuid.uuid4().hex[:8]}"
 
 
 # ── Enums ─────────────────────────────────────────────────────────────────────
@@ -117,6 +129,92 @@ class GenerateHistoryItem(BaseModel):
     translation_key: str
     mode:            str
     filename:        str
+
+
+# ── Storyboard Creator Models ─────────────────────────────────────────────────
+# Tiga pipeline otomatis: (1) GPT generate scene, (2) ElevenLabs voiceover,
+# (3) kompilasi video timeline. Model di bawah ini adalah kontrak data antar
+# pipeline tersebut. Satu "scene" hasil GPT menjadi satu "panel" di timeline.
+
+class StoryboardScene(BaseModel):
+    """Satu scene kronologis hasil parsing GPT dari premis/transkrip."""
+    narasi:        str = Field(..., description="Baris narasi singkat dan berkesan")
+    prompt_gambar: str = Field(..., description="Prompt image-gen lengkap + global style tag")
+    timestamp:     float = Field(0.0, ge=0, description="Estimasi posisi (detik) di timeline")
+
+
+class StoryboardPanel(BaseModel):
+    """Panel timeline — sebuah scene beserta aset yang sudah digenerate.
+
+    duration_seconds di-update otomatis oleh pipeline voiceover berdasarkan
+    durasi audio ElevenLabs yang sebenarnya, agar video tersinkronisasi.
+    """
+    id:                  str = Field(default_factory=lambda: _new_id("panel"))
+    order:               int = Field(0, ge=0, description="Urutan panel di timeline (0-based)")
+    narasi:              str = ""
+    prompt_gambar:       str = ""
+    timestamp:           float = Field(0.0, ge=0)
+    duration_seconds:    float = Field(0.0, ge=0, description="Durasi aktual audio voiceover")
+    image_url:           Optional[str] = None
+    voiceover_audio_url: Optional[str] = None
+    voice_id:            Optional[str] = None
+
+
+class StoryboardProject(BaseModel):
+    """State management satu proyek storyboard dari premis sampai video jadi."""
+    id:         str = Field(default_factory=lambda: _new_id("proj"))
+    premise:    str = ""
+    style_tag:  str = ""
+    panels:     list[StoryboardPanel] = Field(default_factory=list)
+    video_url:  Optional[str] = None
+    status:     Literal["draft", "generating", "ready", "rendering", "completed", "error"] = "draft"
+    created_at: str = Field(default_factory=_now_iso)
+    updated_at: str = Field(default_factory=_now_iso)
+
+
+# ── Storyboard Request Models ─────────────────────────────────────────────────
+
+class StoryboardGenerateRequest(BaseModel):
+    """Pipeline 1 — generate scene dari premis cerita atau transkrip mentah."""
+    premise:            str = Field(..., min_length=3, description="Premis cerita / transkrip")
+    style_tag:          Optional[str] = Field(None, description="Override global style tag")
+    max_scenes:         int = Field(8, ge=1, le=40, description="Jumlah maksimum scene")
+    reading_speed_wpm:  int = Field(150, ge=60, le=400, description="Kata per menit untuk estimasi timestamp")
+    generate_images:    bool = Field(False, description="Langsung render gambar tiap scene")
+    generate_voiceover: bool = Field(False, description="Langsung generate voiceover tiap panel")
+    voice_id:           Optional[str] = Field(None, description="Voice ID ElevenLabs (opsional)")
+
+
+class PanelNarrationUpdate(BaseModel):
+    """Update teks narasi panel — memicu regenerasi voiceover otomatis."""
+    narasi:   str = Field(..., min_length=1, description="Teks narasi baru")
+    voice_id: Optional[str] = Field(None, description="Voice ID ElevenLabs (opsional)")
+
+
+class PanelImageRequest(BaseModel):
+    """Generate / regenerate gambar untuk satu panel."""
+    prompt_gambar: Optional[str] = Field(None, description="Override prompt gambar panel")
+
+
+class VoiceoverRequest(BaseModel):
+    """Pipeline 2 — TTS teks lepas (tidak terikat panel)."""
+    text:     str = Field(..., min_length=1, description="Teks untuk diubah jadi suara")
+    voice_id: Optional[str] = Field(None, description="Voice ID ElevenLabs (opsional)")
+
+
+class VideoExportRequest(BaseModel):
+    """Pipeline 3 — kompilasi semua panel menjadi satu MP4."""
+    fps:        int = Field(24, ge=1, le=60, description="Frame per detik video")
+    width:      int = Field(1920, ge=160, le=3840)
+    height:     int = Field(1080, ge=120, le=2160)
+
+
+class VoiceoverResult(BaseModel):
+    """Hasil pipeline voiceover — dipakai untuk update panel."""
+    audio_url:        str
+    duration_seconds: float
+    voice_id:         str
+    model:            str
 
 
 # ── Data Statis: Reciter ──────────────────────────────────────────────────────
