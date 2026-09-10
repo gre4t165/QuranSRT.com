@@ -90,18 +90,43 @@ def reflow_timestamps(panels: list[StoryboardPanel], reading_speed_wpm: int = 15
 
 # ── Cloud Storage (Supabase Storage) ─────────────────────────────────────────────
 
+def _store_local(data: bytes, path: str) -> str:
+    """Simpan bytes ke disk lokal (mode desktop) & kembalikan URL server lokal.
+
+    Aset disajikan oleh backend lokal lewat mount /assets, sehingga <img>/<video>
+    di webview bisa memuatnya langsung.
+    """
+    dest = os.path.join(settings.LOCAL_STORAGE_DIR, path)
+    os.makedirs(os.path.dirname(dest), exist_ok=True)
+    with open(dest, "wb") as f:
+        f.write(data)
+    base = settings.PUBLIC_BASE_URL.rstrip("/")
+    return f"{base}/assets/{path}"
+
+
 async def upload_to_storage(
     data: bytes,
     path: str,
     content_type: str,
     client: httpx.AsyncClient | None = None,
 ) -> str:
-    """Upload bytes ke Supabase Storage bucket dan kembalikan URL publik.
+    """Simpan aset & kembalikan URL publik.
 
-    `path` adalah path relatif dalam bucket, mis. "proj_ab12/audio/panel_1.mp3".
-    Melempar RuntimeError (pesan ramah) bila storage belum dikonfigurasi / gagal.
+    Dua backend, dipilih via config:
+      - local    : tulis ke disk, sajikan via /assets (mode desktop standalone).
+      - supabase : upload ke Supabase Storage (mode web/hosted).
+
+    `path` adalah path relatif, mis. "proj_ab12/audio/panel_1.mp3".
+    Melempar RuntimeError (pesan ramah) bila storage belum siap / gagal.
     """
     settings.require_storage()
+
+    # Mode desktop: tulis ke disk (blocking I/O di thread agar tak menghambat loop).
+    if settings.use_local_storage:
+        try:
+            return await asyncio.to_thread(_store_local, data, path)
+        except OSError as e:
+            raise RuntimeError(f"Gagal menyimpan aset ke disk: {e}") from e
 
     bucket = settings.STORAGE_BUCKET
     base = settings.SUPABASE_URL.rstrip("/")

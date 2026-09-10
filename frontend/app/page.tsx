@@ -18,6 +18,9 @@ export default function Home() {
             <a href="#cara-kerja" className="hover:text-gold transition-colors">
               Cara Kerja
             </a>
+            <a href="/storyboard" className="hover:text-gold transition-colors">
+              Storyboard AI
+            </a>
             <a
               href="#generate"
               className="bg-gold text-background font-semibold px-5 py-2 rounded-lg hover:bg-gold-light transition-colors"

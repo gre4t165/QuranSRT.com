@@ -1,0 +1,17 @@
+# ── Rust / Tauri ────────────────────────────────────────────────────────────
+src-tauri/target/
+src-tauri/gen/
+
+# ── Node ────────────────────────────────────────────────────────────────────
+node_modules/
+
+# ── Generated icons (dari `npm run icon`) ─────────────────────────────────────
+# source-icon.png tetap di-track; sisanya di-generate saat build.
+src-tauri/icons/*.png
+src-tauri/icons/*.ico
+src-tauri/icons/*.icns
+!src-tauri/icons/source-icon.png
+
+# ── Sidecar binaries (di-build oleh PyInstaller, jangan di-commit) ────────────
+src-tauri/binaries/*
+!src-tauri/binaries/README.md

@@ -6,10 +6,13 @@ Entry point aplikasi. Menginisialisasi app, middleware, dan routing.
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
+from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
+from pathlib import Path
 import logging
 
 from api.routes import generate, quran, batch, user, storyboard
+from core.config import settings
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -33,21 +36,40 @@ app = FastAPI(
 
 # ── Middleware ────────────────────────────────────────────────────────────────
 
-# CORS: izinkan frontend quransrt.com memanggil API ini
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
-        "https://quransrt.com",
-        "https://www.quransrt.com",
-        "http://localhost:3000",   # untuk development lokal
-    ],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# CORS. Di mode desktop (Tauri) origin webview bervariasi (tauri://localhost,
+# http(s)://tauri.localhost), jadi izinkan semua origin. Di mode web, batasi
+# ke domain resmi quransrt.com.
+if settings.DESKTOP_MODE:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=False,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+else:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=[
+            "https://quransrt.com",
+            "https://www.quransrt.com",
+            "http://localhost:3000",   # untuk development lokal
+        ],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
 # Kompres response besar (file SRT bisa lumayan besar)
 app.add_middleware(GZipMiddleware, minimum_size=1000)
+
+# ── Static assets (mode desktop / local storage) ────────────────────────────────
+# Sajikan aset storyboard (gambar/audio/video) yang disimpan di disk lokal
+# sehingga webview bisa memuatnya lewat URL http://host:port/assets/...
+if settings.use_local_storage:
+    _assets_dir = Path(settings.LOCAL_STORAGE_DIR)
+    _assets_dir.mkdir(parents=True, exist_ok=True)
+    app.mount("/assets", StaticFiles(directory=str(_assets_dir)), name="assets")
 
 # ── Routes ───────────────────────────────────────────────────────────────────
 
