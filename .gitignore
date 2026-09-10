@@ -19,6 +19,11 @@ node_modules/
 frontend/.next/
 frontend/out/
 
+# ── Desktop build artifacts (FFmpeg vendor + PyInstaller) ─────────────────────
+backend/vendor/*
+!backend/vendor/README.md
+backend/*.spec.bak
+
 # ── IDE ───────────────────────────────────────────────────────────────────────
 .vscode/
 .idea/

@@ -1,0 +1,15 @@
+{
+  "name": "quransrt-desktop",
+  "version": "2.0.0",
+  "private": true,
+  "description": "QuranSRT Desktop — app installable (Tauri) yang membungkus frontend Next.js + backend FastAPI standalone.",
+  "scripts": {
+    "dev": "tauri dev",
+    "build": "tauri build",
+    "icon": "tauri icon src-tauri/icons/source-icon.png",
+    "tauri": "tauri"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.1.0"
+  }
+}

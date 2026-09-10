@@ -17,6 +17,11 @@ python-dotenv==1.0.0      # Load .env file
 # ── Database (Supabase) ───────────────────────────────────────────────────────
 supabase==2.7.0           # Supabase Python client
 
+# ── Storyboard Creator ────────────────────────────────────────────────────────
+# Fallback kalkulasi durasi audio voiceover bila ffprobe tidak tersedia.
+# (GPT & ElevenLabs dipanggil via httpx; FFmpeg dipanggil via subprocess.)
+mutagen==1.47.0           # Baca metadata/durasi file audio (pure-python)
+
 # ── Testing ───────────────────────────────────────────────────────────────────
 pytest==8.3.0
 pytest-asyncio==0.23.0
