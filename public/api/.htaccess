@@ -1,0 +1,8 @@
+# Lindungi file konfigurasi & data internal
+<FilesMatch "^(config\.php|config\.sample\.php|_lib\.php|_db\.php|_pay\.php|_funnel\.php)$">
+  Require all denied
+</FilesMatch>
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteRule ^(data|storage)/ - [F,L]
+</IfModule>

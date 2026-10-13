@@ -1,0 +1,61 @@
+# Quran SRT Studio — konfigurasi untuk Hostinger (LiteSpeed/Apache)
+Options -Indexes
+DirectoryIndex index.html index.php
+# Biarkan /harga tetap /harga (tanpa dialihkan ke /harga/)
+<IfModule mod_dir.c>
+  DirectorySlash Off
+</IfModule>
+
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+
+  # Paksa HTTPS
+  RewriteCond %{HTTPS} off
+  RewriteCond %{HTTP:X-Forwarded-Proto} !https
+  RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+
+  # Sitemap & robots dibuat dinamis sesuai domain
+  RewriteRule ^sitemap\.xml$ api/sitemap.php [L]
+  RewriteRule ^robots\.txt$ api/robots.php [L]
+
+  # Halaman yang di-prerender: /harga → /harga/index.html
+  RewriteCond %{REQUEST_FILENAME} !-f
+  RewriteCond %{REQUEST_FILENAME}/index.html -f
+  RewriteRule ^(.*?)/?$ $1/index.html [L]
+
+  # Selain file yang ada, arahkan ke aplikasi (SPA)
+  RewriteCond %{REQUEST_URI} !^/api/
+  RewriteCond %{REQUEST_FILENAME} !-f
+  RewriteCond %{REQUEST_FILENAME} !-d
+  RewriteRule ^ __spa-fallback.html [L]
+</IfModule>
+
+# Jenis file
+AddType application/manifest+json .webmanifest
+AddType text/vtt .vtt
+AddType font/woff2 .woff2
+
+# Kompresi
+<IfModule mod_deflate.c>
+  AddOutputFilterByType DEFLATE text/html text/css application/javascript application/json image/svg+xml application/manifest+json text/plain
+</IfModule>
+
+# Cache: aset ber-hash disimpan lama, HTML & konfigurasi selalu dicek ulang
+<IfModule mod_headers.c>
+  <FilesMatch "\.(png|svg|webp|jpg|ico)$">
+    Header set Cache-Control "public, max-age=604800"
+  </FilesMatch>
+  <FilesMatch "-[A-Za-z0-9_-]{8}\.(js|css|woff2?)$">
+    Header set Cache-Control "public, max-age=31536000, immutable"
+  </FilesMatch>
+  <FilesMatch "\.(html|json|webmanifest)$">
+    Header set Cache-Control "no-cache"
+  </FilesMatch>
+  <FilesMatch "^[0-9]+\.json$">
+    Header set Cache-Control "public, max-age=2592000"
+  </FilesMatch>
+  Header always set X-Content-Type-Options "nosniff"
+  Header always set Referrer-Policy "strict-origin-when-cross-origin"
+  Header always set X-Frame-Options "SAMEORIGIN"
+  Header always set Permissions-Policy "camera=(), geolocation=(), microphone=()"
+</IfModule>

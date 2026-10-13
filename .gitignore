@@ -1,29 +1,10 @@
-# ── Python ────────────────────────────────────────────────────────────────────
-__pycache__/
-*.py[cod]
-*.egg-info/
-dist/
-build/
-.venv/
-venv/
-env/
+node_modules
+build
+.react-router
+dist
+*.zip
+public/api/config.php
 
-# ── Environment ──────────────────────────────────────────────────────────────
 .env
-.env.local
-.env.production
-backend/.env
-
-# ── Node ──────────────────────────────────────────────────────────────────────
-node_modules/
-frontend/.next/
-frontend/out/
-
-# ── IDE ───────────────────────────────────────────────────────────────────────
-.vscode/
-.idea/
-*.swp
-
-# ── OS ────────────────────────────────────────────────────────────────────────
-.DS_Store
-Thumbs.db
+public/api/storage/
+*.sqlite

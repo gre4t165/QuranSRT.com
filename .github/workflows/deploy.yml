@@ -1,0 +1,47 @@
+# Setiap push ke branch "main": build situs lalu kirim hasilnya ke Hostinger lewat FTP.
+# Rahasia (FTP) diisi di GitHub: Settings → Secrets and variables → Actions.
+name: Deploy ke Hostinger
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+      - run: npm run typecheck
+      - run: node scripts/run-tests.mjs
+      - run: npm run build
+        env:
+          VITE_SITE_URL: ${{ vars.SITE_URL }}
+
+      - name: Kirim ke Hostinger
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.FTP_SERVER }}
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          protocol: ftps
+          local-dir: ./build/client/
+          server-dir: ${{ secrets.FTP_DIR }}
+          # config.php (kunci rahasia) dan storage (data & database) hidup hanya di server: jangan disentuh.
+          exclude: |
+            **/.git*
+            **/.git*/**
+            api/config.php
+            api/storage/**
+            app-config.json
