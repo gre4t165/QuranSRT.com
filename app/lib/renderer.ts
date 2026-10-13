@@ -139,7 +139,7 @@ interface Layout {
 	avail: number;
 }
 
-function layoutText(ctx: CanvasRenderingContext2D, W: number, H: number, s: StyleSettings, lines: CueLine[], hasHeader: boolean, minScale = 0.3): Layout {
+export function layoutText(ctx: CanvasRenderingContext2D, W: number, H: number, s: StyleSettings, lines: CueLine[], hasHeader: boolean, minScale = 0.3): Layout {
 	const u = Math.min(W, H) / 1080;
 	const headerAtBottom = s.position === 'top';
 	const maxW = W * (s.ratio === '9:16' ? 0.84 : 0.8);

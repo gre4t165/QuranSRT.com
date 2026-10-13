@@ -1015,6 +1015,7 @@ export function Studio() {
 							selectedRow={selected}
 							placeholder={t('Subtitle akan tampil di sini', 'Subtitles appear here')}
 							label={t('Pratinjau subtitle', 'Subtitle preview')}
+							partText={(i, n) => t(`Bagian ${i} dari ${n}`, `Part ${i} of ${n}`)}
 						/>
 						<div className="preview-bar">
 							<div className="seg" role="group" aria-label={t('Rasio', 'Ratio')}>

@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { StyleSettings } from '~/lib/project';
 import type { TimelinePlayer } from '~/lib/player';
 import type { Cue } from '~/lib/subtitles';
@@ -16,10 +16,14 @@ interface Props {
 	label: string;
 	/** Saat dijeda di luar subtitle, tampilkan baris terpilih agar gaya tetap terlihat. */
 	selectedRow?: number;
+	/** Teks penanda saat satu ayat dibagi jadi beberapa subtitle, mis. “Bagian 2 dari 4”. */
+	partText?: (i: number, n: number) => string;
 }
 
-export function Preview({ player, cues, style, header, bgImage, bgVideo, bgVideoIsMedia, placeholder, label, selectedRow = 0 }: Props) {
+export function Preview({ player, cues, style, header, bgImage, bgVideo, bgVideoIsMedia, placeholder, label, selectedRow = 0, partText }: Props) {
 	const ref = useRef<HTMLCanvasElement>(null);
+	const [part, setPart] = useState<[number, number] | null>(null);
+	const partRef = useRef<[number, number] | null>(null);
 	const live = useRef({ cues, style, header, bgImage, bgVideo, bgVideoIsMedia, placeholder, selectedRow });
 	live.current = { cues, style, header, bgImage, bgVideo, bgVideoIsMedia, placeholder, selectedRow };
 
@@ -48,6 +52,16 @@ export function Preview({ player, cues, style, header, bgImage, bgVideo, bgVideo
 		if (!cue && !player.playing && L.cues.length) {
 			cue = L.cues.find((c) => c.row === L.selectedRow) ?? L.cues.find((c) => c.start >= t) ?? L.cues[0];
 			alpha = 1;
+		}
+		// Penanda bagian: ayat panjang dibagi beberapa subtitle yang tampil bergiliran.
+		let np: [number, number] | null = null;
+		if (cue) {
+			const same = L.cues.filter((x) => x.row === cue!.row);
+			if (same.length > 1) np = [same.indexOf(cue) + 1, same.length];
+		}
+		if (np?.[0] !== partRef.current?.[0] || np?.[1] !== partRef.current?.[1]) {
+			partRef.current = np;
+			setPart(np);
 		}
 		drawFrame(c.getContext('2d')!, W, H, {
 			style: L.style,
@@ -90,6 +104,7 @@ export function Preview({ player, cues, style, header, bgImage, bgVideo, bgVideo
 	return (
 		<div className="preview-frame">
 			<canvas ref={ref} role="img" aria-label={label} />
+			{part && partText && <span className="part-badge" aria-live="polite">{partText(part[0], part[1])}</span>}
 		</div>
 	);
 }
