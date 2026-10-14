@@ -1,6 +1,6 @@
 // Penggambar frame subtitle ke <canvas>. Dipakai untuk pratinjau DAN ekspor video,
 // sehingga hasil video sama persis dengan yang terlihat di pratinjau.
-import type { StyleSettings } from './project';
+import type { LayerId, StyleSettings } from './project';
 import type { CueLine } from './subtitles';
 
 export const LATIN_FONT = '"Plus Jakarta Sans Variable", "Plus Jakarta Sans", system-ui, sans-serif';
@@ -23,6 +23,17 @@ export interface FrameInput {
 	watermark?: string;
 	placeholder?: string;
 }
+
+/** Kotak lapisan di kanvas (piksel kanvas) — dipakai pratinjau untuk klik & geser. */
+export interface Hit {
+	id: LayerId;
+	x: number;
+	y: number;
+	w: number;
+	h: number;
+}
+
+const layerOf = (k: CueLine['kind']): LayerId => k;
 
 function wrap(ctx: CanvasRenderingContext2D, text: string, maxW: number): string[] {
 	const words = text.split(/\s+/).filter(Boolean);
@@ -155,12 +166,14 @@ export function layoutText(ctx: CanvasRenderingContext2D, W: number, H: number, 
 		let prevKind: string | null = null;
 		for (const l of lines) {
 			const isAr = l.kind === 'ar';
-			const size = (isAr ? s.arabicSize : l.kind === 'trans' ? s.transSize : s.transSize * 0.78) * u * k;
+			const lc = s.layers?.[layerOf(l.kind)];
+			if (lc?.hidden) continue;
+			const size = (isAr ? s.arabicSize : l.kind === 'trans' ? s.transSize : s.transSize * 0.78) * u * k * (lc?.scale ?? 1);
 			const font = isAr ? `${Math.round(size)}px "${s.arabicFont}", "Amiri Quran", serif` : `${l.kind === 'translit' ? 'italic 500' : l.kind === 'label' ? '600' : '500'} ${Math.round(size)}px ${LATIN_FONT}`;
 			ctx.font = font;
 			ctx.direction = isAr ? 'rtl' : 'ltr';
 			const lh = size * (isAr ? (s.arabicFont === 'Reem Kufi' ? 1.5 : 1.85) : 1.45);
-			const color = isAr ? s.textColor : l.kind === 'label' ? s.accent : l.kind === 'translit' ? hexA(s.transColor, 0.85) : s.transColor;
+			const color = lc?.color ? lc.color : isAr ? s.textColor : l.kind === 'label' ? s.accent : l.kind === 'translit' ? hexA(s.transColor, 0.85) : s.transColor;
 			const parts = wrap(ctx, l.text, maxW);
 			parts.forEach((p, pi) => {
 				const gap = pi === 0 && prevKind && prevKind !== l.kind ? size * 0.45 : 0;
@@ -199,7 +212,8 @@ export function makeFitTest(style: StyleSettings, hasHeader: boolean): ((lines: 
 	};
 }
 
-export function drawFrame(ctx: CanvasRenderingContext2D, W: number, H: number, f: FrameInput) {
+export function drawFrame(ctx: CanvasRenderingContext2D, W: number, H: number, f: FrameInput): Hit[] {
+	const hits: Hit[] = [];
 	const s = f.style;
 	const u = Math.min(W, H) / 1080;
 	ctx.save();
@@ -209,19 +223,26 @@ export function drawFrame(ctx: CanvasRenderingContext2D, W: number, H: number, f
 
 	const headerAtBottom = s.position === 'top';
 	const hasHeader = !!(s.header && f.header);
-	if (hasHeader && f.header) {
+	const hc = s.layers?.header;
+	if (hasHeader && f.header && !hc?.hidden) {
 		ctx.save();
 		ctx.textAlign = 'center';
-		const y = headerAtBottom ? H - 92 * u : 92 * u;
+		const hs = hc?.scale ?? 1;
+		const hx = W / 2 + (hc?.dx ?? 0) * W;
+		const y = (headerAtBottom ? H - 92 * u : 92 * u) + (hc?.dy ?? 0) * H;
 		ctx.direction = 'rtl';
-		ctx.fillStyle = s.accent;
-		ctx.font = `${Math.round(40 * u)}px "${s.arabicFont}", serif`;
-		ctx.fillText(f.header.ar, W / 2, y - 12 * u);
+		ctx.fillStyle = hc?.color || s.accent;
+		ctx.font = `${Math.round(40 * u * hs)}px "${s.arabicFont}", serif`;
+		const w1 = ctx.measureText(f.header.ar).width;
+		ctx.fillText(f.header.ar, hx, y - 12 * u * hs);
 		ctx.direction = 'ltr';
 		ctx.globalAlpha = 0.8;
-		ctx.font = `600 ${Math.round(19 * u)}px ${LATIN_FONT}`;
-		ctx.fillStyle = s.transColor;
-		ctx.fillText(f.header.latin, W / 2, y + 30 * u);
+		ctx.font = `600 ${Math.round(19 * u * hs)}px ${LATIN_FONT}`;
+		ctx.fillStyle = hc?.color || s.transColor;
+		const w2 = ctx.measureText(f.header.latin).width;
+		ctx.fillText(f.header.latin, hx, y + 30 * u * hs);
+		const hw = Math.max(w1, w2);
+		hits.push({ id: 'header', x: hx - hw / 2, y: y - 12 * u * hs - 28 * u * hs, w: hw, h: 80 * u * hs });
 		ctx.restore();
 	}
 
@@ -236,22 +257,29 @@ export function drawFrame(ctx: CanvasRenderingContext2D, W: number, H: number, f
 		y0 = Math.max(y0, Math.min(topLimit, 30 * u));
 
 		ctx.globalAlpha = Math.max(0, Math.min(1, f.alpha));
+		const offX = (l: { kind: CueLine['kind'] }) => (s.layers?.[layerOf(l.kind)]?.dx ?? 0) * W;
+		const offY = (l: { kind: CueLine['kind'] }) => (s.layers?.[layerOf(l.kind)]?.dy ?? 0) * H;
 		if (s.box) {
-			let bw = 0;
+			let x0 = Infinity, x1 = -Infinity, ya = Infinity, yb = -Infinity, yy = y0;
 			for (const l of laid) {
 				ctx.font = l.font;
 				ctx.direction = l.rtl ? 'rtl' : 'ltr';
-				bw = Math.max(bw, ctx.measureText(l.text).width);
+				const w = ctx.measureText(l.text).width;
+				yy += l.gapBefore;
+				x0 = Math.min(x0, W / 2 + offX(l) - w / 2);
+				x1 = Math.max(x1, W / 2 + offX(l) + w / 2);
+				ya = Math.min(ya, yy + offY(l));
+				yb = Math.max(yb, yy + l.lh + offY(l));
+				yy += l.lh;
 			}
 			const px = 34 * u;
 			const py = 18 * u;
 			ctx.fillStyle = `rgba(0,0,0,${s.boxOpacity})`;
-			const x = W / 2 - bw / 2 - px;
-			const r = 18 * u;
 			ctx.beginPath();
-			ctx.roundRect(x, y0 - py, bw + px * 2, totalH + py * 2, r);
+			ctx.roundRect(x0 - px, ya - py, x1 - x0 + px * 2, yb - ya + py * 2, 18 * u);
 			ctx.fill();
 		}
+		const boxes = new Map<LayerId, { x0: number; x1: number; y0: number; y1: number }>();
 		ctx.textAlign = 'center';
 		const outline = Math.max(0, s.outline || 0);
 		let y = y0;
@@ -259,7 +287,12 @@ export function drawFrame(ctx: CanvasRenderingContext2D, W: number, H: number, f
 			y += l.gapBefore;
 			ctx.font = l.font;
 			ctx.direction = l.rtl ? 'rtl' : 'ltr';
-			const cy = y + l.lh / 2;
+			const cy = y + l.lh / 2 + offY(l);
+			const cx = W / 2 + offX(l);
+			const tw = ctx.measureText(l.text).width;
+			const bx = boxes.get(layerOf(l.kind));
+			const b = { x0: cx - tw / 2, x1: cx + tw / 2, y0: cy - l.lh / 2, y1: cy + l.lh / 2 };
+			if (bx) { bx.x0 = Math.min(bx.x0, b.x0); bx.x1 = Math.max(bx.x1, b.x1); bx.y0 = Math.min(bx.y0, b.y0); bx.y1 = Math.max(bx.y1, b.y1); } else boxes.set(layerOf(l.kind), b);
 			if (outline > 0) {
 				ctx.save();
 				ctx.shadowColor = 'transparent';
@@ -267,7 +300,7 @@ export function drawFrame(ctx: CanvasRenderingContext2D, W: number, H: number, f
 				ctx.miterLimit = 2;
 				ctx.strokeStyle = s.outlineColor || '#000000';
 				ctx.lineWidth = outline * 2 * u * (l.size / (l.rtl ? s.arabicSize * u : s.transSize * u) || 1);
-				ctx.strokeText(l.text, W / 2, cy);
+				ctx.strokeText(l.text, cx, cy);
 				ctx.restore();
 			}
 			if (s.shadow) {
@@ -276,10 +309,11 @@ export function drawFrame(ctx: CanvasRenderingContext2D, W: number, H: number, f
 				ctx.shadowOffsetY = 2 * u;
 			}
 			ctx.fillStyle = l.color;
-			ctx.fillText(l.text, W / 2, cy);
+			ctx.fillText(l.text, cx, cy);
 			ctx.shadowColor = 'transparent';
 			y += l.lh;
 		}
+		for (const [id, b] of boxes) hits.push({ id, x: b.x0, y: b.y0, w: b.x1 - b.x0, h: b.y1 - b.y0 });
 	}
 	ctx.globalAlpha = 1;
 	if (s.brand?.trim()) {
@@ -297,6 +331,7 @@ export function drawFrame(ctx: CanvasRenderingContext2D, W: number, H: number, f
 		ctx.fillText(f.watermark, W - 52 * u, H - 52 * u);
 	}
 	ctx.restore();
+	return hits;
 }
 
 /** Ambil cue aktif + alpha fade untuk waktu t. */

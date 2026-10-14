@@ -44,6 +44,17 @@ export interface ExportSettings {
 	autoFit: boolean;
 }
 
+export type LayerId = 'ar' | 'trans' | 'translit' | 'label' | 'header';
+/** Penyesuaian satu lapisan teks: geser (pecahan lebar/tinggi layar), skala, warna, sembunyikan. */
+export interface LayerCfg {
+	dx?: number;
+	dy?: number;
+	scale?: number;
+	color?: string;
+	hidden?: boolean;
+}
+export const LAYER_IDS: LayerId[] = ['ar', 'translit', 'trans', 'label', 'header'];
+
 export interface StyleSettings {
 	template: string;
 	ratio: Ratio;
@@ -70,6 +81,8 @@ export interface StyleSettings {
 	reciterName: boolean;
 	/** Teks branding kreator, mis. @namakanal (kosong = tidak tampil). */
 	brand: string;
+	/** Kustomisasi per lapisan (hasil geser/ubah ukuran langsung di pratinjau). */
+	layers?: Partial<Record<LayerId, LayerCfg>>;
 }
 
 export interface Project {
@@ -251,6 +264,25 @@ export function normalizeProject(raw: unknown): Project {
 		rows,
 		content: { ...DEFAULT_CONTENT, ...(r.content ?? {}) },
 		exp: { ...DEFAULT_EXPORT, ...(r.exp ?? {}) },
-		style: { ...DEFAULT_STYLE, ...(r.style ?? {}) },
+		style: { ...DEFAULT_STYLE, ...(r.style ?? {}), layers: cleanLayers((r.style as StyleSettings | undefined)?.layers) },
 	};
+}
+
+function cleanLayers(raw: unknown): StyleSettings['layers'] {
+	const out: NonNullable<StyleSettings['layers']> = {};
+	if (!raw || typeof raw !== 'object') return out;
+	const num = (v: unknown, lo: number, hi: number) => (typeof v === 'number' && isFinite(v) ? Math.max(lo, Math.min(hi, v)) : undefined);
+	for (const id of LAYER_IDS) {
+		const c = (raw as Record<string, LayerCfg>)[id];
+		if (!c || typeof c !== 'object') continue;
+		const v: LayerCfg = {};
+		const dx = num(c.dx, -1, 1), dy = num(c.dy, -1, 1), sc = num(c.scale, 0.3, 3);
+		if (dx !== undefined) v.dx = dx;
+		if (dy !== undefined) v.dy = dy;
+		if (sc !== undefined) v.scale = sc;
+		if (typeof c.color === 'string' && /^#[0-9a-fA-F]{6}$/.test(c.color)) v.color = c.color;
+		if (c.hidden === true) v.hidden = true;
+		out[id] = v;
+	}
+	return out;
 }

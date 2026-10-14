@@ -1,5 +1,5 @@
 import { ImagePlus, X } from 'lucide-react';
-import { ARABIC_FONTS, TEMPLATES, type Ratio, type StyleSettings } from '~/lib/project';
+import { ARABIC_FONTS, LAYER_IDS, TEMPLATES, type LayerCfg, type LayerId, type Ratio, type StyleSettings } from '~/lib/project';
 import { useT } from '~/lib/i18n';
 
 interface Props {
@@ -9,10 +9,16 @@ interface Props {
 	onBgFile: (f: File) => void;
 	onBgClear: () => void;
 	mediaIsVideo: boolean;
+	layer: LayerId | null;
+	onSelectLayer: (id: LayerId | null) => void;
+	onLayer: (id: LayerId, patch: LayerCfg | null) => void;
 }
 
-export function StylePanel({ style: s, set, bgName, onBgFile, onBgClear, mediaIsVideo }: Props) {
+export function StylePanel({ style: s, set, bgName, onBgFile, onBgClear, mediaIsVideo, layer, onSelectLayer, onLayer }: Props) {
 	const { t } = useT();
+	const names: Record<LayerId, string> = { ar: t('Teks Arab', 'Arabic'), translit: t('Transliterasi', 'Transliteration'), trans: t('Terjemahan', 'Translation'), label: t('Label ayat', 'Verse label'), header: t('Nama surah', 'Surah name') };
+	const lc = layer ? s.layers?.[layer] ?? {} : {};
+	const defColor = (id: LayerId) => (id === 'ar' ? s.textColor : id === 'label' || id === 'header' ? s.accent : s.transColor);
 	return (
 		<div className="tab-body">
 			<div className="group">
@@ -29,6 +35,42 @@ export function StylePanel({ style: s, set, bgName, onBgFile, onBgClear, mediaIs
 						);
 					})}
 				</div>
+			</div>
+
+			<div className="group">
+				<h3>{t('Edit di layar', 'On-screen editing')}</h3>
+				<p className="status-line">{t('Klik teks di pratinjau untuk memilih, tarik untuk menggeser, tarik sudut kotak untuk mengubah ukuran, klik ganda untuk mengetik ulang. Tombol panah menggeser halus (Shift = lebih jauh), + / − mengubah ukuran. Pengaturan berlaku untuk semua subtitle dan ikut ke video.', 'Click text in the preview to select it, drag to move, drag the box corner to resize, double-click to retype. Arrow keys nudge (Shift = bigger), + / − resize. Applies to all subtitles and carries into the exported video.')}</p>
+				<div className="layer-list" role="group" aria-label={t('Lapisan teks', 'Text layers')}>
+					{LAYER_IDS.map((id) => (
+						<button key={id} aria-pressed={layer === id} onClick={() => onSelectLayer(layer === id ? null : id)}>
+							{names[id]}{s.layers?.[id]?.hidden ? ' ⌀' : ''}
+						</button>
+					))}
+				</div>
+				{layer && (
+					<div className="group">
+						<label className="field">
+							<span>{names[layer]} — {t('ukuran', 'size')} <b>{Math.round((lc.scale ?? 1) * 100)}%</b></span>
+							<input type="range" min={30} max={300} value={Math.round((lc.scale ?? 1) * 100)} onChange={(e) => onLayer(layer, { scale: Number(e.target.value) / 100 })} />
+						</label>
+						<div className="grid-2">
+							<label className="field">
+								<span>{t('Geser mendatar', 'Horizontal')} <b>{Math.round((lc.dx ?? 0) * 100)}</b></span>
+								<input type="range" min={-50} max={50} value={Math.round((lc.dx ?? 0) * 100)} onChange={(e) => onLayer(layer, { dx: Number(e.target.value) / 100 })} />
+							</label>
+							<label className="field">
+								<span>{t('Geser tegak', 'Vertical')} <b>{Math.round((lc.dy ?? 0) * 100)}</b></span>
+								<input type="range" min={-50} max={50} value={Math.round((lc.dy ?? 0) * 100)} onChange={(e) => onLayer(layer, { dy: Number(e.target.value) / 100 })} />
+							</label>
+						</div>
+						<label className="color-row">{t('Warna', 'Color')}<input type="color" value={lc.color ?? defColor(layer)} onChange={(e) => onLayer(layer, { color: e.target.value })} /></label>
+						<label className="check"><input type="checkbox" checked={!!lc.hidden} onChange={(e) => onLayer(layer, { hidden: e.target.checked })} /> {t('Sembunyikan lapisan ini', 'Hide this layer')}</label>
+						<div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+							<button className="btn btn-ghost btn-sm" onClick={() => onLayer(layer, null)}>{t('Reset lapisan ini', 'Reset this layer')}</button>
+							<button className="btn btn-ghost btn-sm" onClick={() => { for (const id of LAYER_IDS) onLayer(id, null); }}>{t('Reset semua', 'Reset all')}</button>
+						</div>
+					</div>
+				)}
 			</div>
 
 			<div className="group">

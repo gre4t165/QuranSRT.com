@@ -13,6 +13,8 @@ import { loadBasmalah, loadSurah } from '~/lib/quran';
 import {
 	newProject, normalizeProject, projectTitle, rowsFromAyat, shouldOfferBasmalah, taawudzRow, uid,
 	type ContentSettings, type ExportSettings, type Project, type Row, type StyleSettings,
+	type LayerCfg,
+	type LayerId,
 } from '~/lib/project';
 import { buildCues, validateRows } from '~/lib/subtitles';
 import { applyAlignment, fullOf, groupRange, mergeNext, partInfo, splitRow, unsplit } from '~/lib/parts';
@@ -801,6 +803,16 @@ export function Studio() {
 	const duration = player.hasMedia ? player.duration : rows.reduce((a, r) => Math.max(a, r.end), 0);
 	const setContent = (p: Partial<ContentSettings>) => setMeta((m) => ({ ...m, content: { ...m.content, ...p } }));
 	const setExp = (p: Partial<ExportSettings>) => setMeta((m) => ({ ...m, exp: { ...m.exp, ...p } }));
+	const [layerSel, setLayerSel] = useState<LayerId | null>(null);
+	const patchLayer = (id: LayerId, patch: LayerCfg | null) =>
+		setMeta((m) => {
+			const layers = { ...(m.style.layers ?? {}) };
+			if (patch === null) delete layers[id];
+			else layers[id] = { ...layers[id], ...patch };
+			return { ...m, style: { ...m.style, layers } };
+		});
+	const transField = (): 'id' | 'en' => (meta.content.translation === 'none' ? (lang === 'en' ? 'en' : 'id') : meta.content.translation);
+	const layerField = (id: LayerId): 'ar' | 'tr' | 'id' | 'en' | null => (id === 'ar' ? 'ar' : id === 'translit' ? 'tr' : id === 'trans' ? transField() : null);
 	const setStyle = (p: Partial<StyleSettings>) => setMeta((m) => ({ ...m, style: { ...m.style, ...p, template: p.template ?? (Object.keys(p).some((k) => k !== 'ratio') ? 'custom' : m.style.template) } }));
 	const busy = textBusy || !!qariProg || decodeBusy;
 
@@ -1016,6 +1028,19 @@ export function Studio() {
 							placeholder={t('Subtitle akan tampil di sini', 'Subtitles appear here')}
 							label={t('Pratinjau subtitle', 'Subtitle preview')}
 							partText={(i, n) => t(`Bagian ${i} dari ${n}`, `Part ${i} of ${n}`)}
+							layer={layerSel}
+							onSelectLayer={setLayerSel}
+							onLayer={patchLayer}
+							getText={(row, id) => {
+								const f = layerField(id);
+								return f && rows[row] ? String(rows[row][f] ?? '') : null;
+							}}
+							onEditText={(row, id, text) => {
+								const f = layerField(id);
+								if (f) handlers.edit(row, f, text);
+							}}
+							hintText={t('Klik teks untuk memilih • tarik untuk menggeser • klik ganda untuk mengedit', 'Click text to select • drag to move • double-click to edit')}
+							editLabel={t('Edit teks (Enter = simpan)', 'Edit text (Enter = save)')}
 						/>
 						<div className="preview-bar">
 							<div className="seg" role="group" aria-label={t('Rasio', 'Ratio')}>
@@ -1049,6 +1074,9 @@ export function Studio() {
 								<StylePanel
 									style={meta.style}
 									set={setStyle}
+									layer={layerSel}
+									onSelectLayer={setLayerSel}
+									onLayer={patchLayer}
 									bgName={bgName}
 									onBgFile={onBgFile}
 									onBgClear={() => { setBgName(''); setBgImage(null); setBgClip(null); }}

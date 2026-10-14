@@ -471,3 +471,15 @@ input[type='color'] { width: 44px; height: 36px; padding: 2px; border: 1px solid
 
 .part-badge { position: absolute; left: 14px; bottom: 14px; font-size: 12px; font-weight: 650; padding: 3px 9px; border-radius: 99px; background: rgba(0, 0, 0, .62); color: #fff; pointer-events: none; }
 .preview-frame:fullscreen .part-badge { display: none; }
+
+/* Lapisan teks interaktif di pratinjau */
+.preview-frame:focus-visible { outline: 2px solid var(--action); outline-offset: 2px; }
+.layer-sel { position: absolute; border: 2px dashed var(--action, #2a8f6f); border-radius: 6px; pointer-events: none; box-shadow: 0 0 0 1px rgba(255, 255, 255, .6); }
+.layer-handle { position: absolute; right: -8px; bottom: -8px; width: 14px; height: 14px; border-radius: 4px; background: var(--action, #2a8f6f); border: 2px solid #fff; cursor: nwse-resize; pointer-events: auto; touch-action: none; }
+.layer-edit { position: absolute; z-index: 3; resize: none; background: rgba(0, 0, 0, .78); color: #fff; border: 2px solid var(--action, #2a8f6f); border-radius: 8px; padding: 8px 10px; font-size: 18px; line-height: 1.5; text-align: center; }
+.layer-hint { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); font-size: 12px; background: rgba(0, 0, 0, .55); color: #fff; padding: 3px 10px; border-radius: 99px; opacity: 0; transition: opacity .2s; pointer-events: none; white-space: nowrap; }
+.preview-frame:hover .layer-hint { opacity: 1; }
+.preview-frame:fullscreen .layer-hint, .preview-frame:fullscreen .layer-sel { display: none; }
+.layer-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.layer-list button { border: 1px solid var(--line); background: var(--surface); border-radius: 99px; padding: 6px 12px; font-size: 13px; font-weight: 650; cursor: pointer; color: var(--ink); }
+.layer-list button[aria-pressed='true'] { background: var(--action); color: #fff; border-color: var(--action); }
